@@ -1,0 +1,101 @@
+.x01 {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.x01__cards {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Current turn: the three darts just thrown, plus the checkout hint. */
+.x01__turn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.x01__darts {
+  display: flex;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.x01__dart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-numeric);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.x01__dart--empty {
+  background: transparent;
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.x01__checkout {
+  flex: 1 1 auto;
+  text-align: right;
+  min-width: 0;
+}
+
+.x01__checkout-label {
+  display: block;
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.x01__checkout-value {
+  display: block;
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--color-success);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.x01__multiplier {
+  flex: none;
+}
+
+/* 5 x 4 number grid. Keys stretch to fill whatever height is left after the
+ * fixed rows above, but never below --touch-min. */
+.x01__grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-auto-rows: minmax(var(--touch-min), 1fr);
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+.x01__actions {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-2);
+}

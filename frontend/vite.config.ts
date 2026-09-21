@@ -19,6 +19,9 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // Components declare their touch targets in CSS, so the cascade has to be
+    // present for the computed-style assertions in components.test.tsx.
+    css: true,
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
