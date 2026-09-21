@@ -288,8 +288,8 @@ def test_the_bull_is_the_least_forgiving_first_dart() -> None:
     assert rank_key((Throw(1, 1), D20)) < rank_key((BULL, D20))
 
 
-def test_101_leads_with_a_treble_not_the_bull() -> None:
-    """T17 BULL is the standard two-dart 101, and it leads on the treble."""
+def test_101_leads_with_a_triple_not_the_bull() -> None:
+    """T17 BULL is the standard two-dart 101, and it leads on the triple."""
     assert suggest(101, 3, Rule.DOUBLE)[0] == (Throw(17, 3), BULL)
 
 
