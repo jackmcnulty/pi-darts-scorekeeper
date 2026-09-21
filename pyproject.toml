@@ -9,7 +9,10 @@ readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11,<3.12"
 dynamic = ["version"]
-dependencies = []
+dependencies = [
+    "fastapi>=0.141.1",
+    "uvicorn[standard]>=0.53.0",
+]
 
 [project.scripts]
 
@@ -20,6 +23,7 @@ dev = [
     "hypothesis>=6.100",
     "ruff>=0.6",
     "mypy>=1.11",
+    "httpx>=0.28.1",
 ]
 
 [tool.hatch.version]
@@ -34,6 +38,10 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM"]
+
+# `darts` is installed into the venv, so isort would otherwise file it as third-party.
+[tool.ruff.lint.isort]
+known-first-party = ["darts"]
 
 [tool.mypy]
 python_version = "3.11"

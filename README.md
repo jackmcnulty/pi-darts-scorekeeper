@@ -30,19 +30,37 @@ The frontend targets Safari on an iPhone (402×874 CSS px), dark-first.
 ## Dev quickstart
 
 `uv` is the only supported dependency manager. Do not add a `requirements.txt` or use bare `pip`.
+Node is pinned by `.nvmrc` (Node 22).
 
 ```sh
-# Install uv (macOS)
+# Backend
 brew install uv
-
-# Create the venv and install dependencies from the committed lockfile
 uv sync
 
-# Lint, format check, type check, test
+# Frontend
+nvm use          # reads .nvmrc
+cd frontend && npm ci && cd ..
+
+# Both dev servers together: Uvicorn on :8000, Vite on :5173 proxying /api to it.
+# Ctrl-C stops both.
+./scripts/dev.sh
+```
+
+### Checks
+
+```sh
+# Backend
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy backend
 uv run pytest
+
+# Frontend
+cd frontend
+npm run lint
+npm run typecheck
+npm run test
+npm run build
 ```
 
 Optionally install the pre-commit hooks (ruff check + ruff format):
@@ -55,7 +73,9 @@ uv run --with pre-commit pre-commit install
 
 ```
 backend/darts/     Python package (engine, database, API)
+frontend/          Vite + React + TypeScript app
 tests/             pytest suite
+scripts/           dev and ops shell scripts
 docs/              architecture and data-model notes
 ```
 
