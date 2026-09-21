@@ -105,7 +105,7 @@ export function CricketMockup() {
           options={[
             { value: 'single', label: 'Single' },
             { value: 'double', label: 'Double' },
-            { value: 'treble', label: 'Treble' },
+            { value: 'triple', label: 'Triple' },
           ]}
         />
 

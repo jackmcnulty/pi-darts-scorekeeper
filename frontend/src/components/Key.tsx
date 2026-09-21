@@ -5,7 +5,7 @@ export type KeyVariant = 'default' | 'accent' | 'danger'
 
 export interface KeyProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string
-  /** Small caption under the label, e.g. the value a treble is worth. */
+  /** Small caption under the label, e.g. the value a triple is worth. */
   sub?: string
   variant?: KeyVariant
   wide?: boolean
