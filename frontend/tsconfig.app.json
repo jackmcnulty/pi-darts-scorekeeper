@@ -24,5 +24,9 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  /* Tests live in tsconfig.test.json, which is the only project allowed node
+   * globals. Keeping them out of here is what stops app code reaching for
+   * process or fs by accident. */
+  "include": ["src"],
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test-setup.ts"]
 }

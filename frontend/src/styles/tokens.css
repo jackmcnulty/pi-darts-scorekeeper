@@ -1,0 +1,116 @@
+/*
+ * Design tokens. Dark-first: there is no light theme and there is not meant to be
+ * one — the board is in a dim room and the phone is held at arm's length.
+ *
+ * Colours are plain hex on purpose. tokens.test.ts parses this file as text and
+ * computes the contrast ratio of every declared pair, so anything it cannot parse
+ * (color-mix, oklch, nested var indirection) is untestable and therefore unwanted.
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- Surfaces ---- */
+  --color-bg: #0b0e13;
+  --color-surface: #151a22;
+  --color-surface-raised: #1f2630;
+  --color-surface-pressed: #2a3340;
+  --color-border: #2c3542;
+  --color-border-strong: #44506180;
+
+  /* ---- Text ----
+   * --color-text must hold 7:1 against every surface; --color-text-secondary 4.5:1. */
+  --color-text: #ffffff;
+  --color-text-secondary: #a8b3c4;
+  --color-text-muted: #8c99ab;
+  --color-text-on-fill: #0b0e13;
+
+  /* ---- Intent ---- */
+  --color-primary: #4da3ff;
+  /* #ff6b6b was the obvious choice and lands at 6.97:1 behind the dark label on
+   * a danger button — just under. Lightened until it clears 7:1. */
+  --color-danger: #ff7272;
+  --color-success: #3ddc97;
+  --color-warning: #ffcc66;
+
+  /* ---- Player accents ----
+   * Four Okabe-Ito-derived anchors (amber, teal, yellow, vermillion) plus four
+   * found by search: the pool was every HSL colour holding 7.2:1 against
+   * --color-text-on-fill, and the four remaining slots were chosen to maximise
+   * the minimum CIE76 delta-E across normal vision *and* simulated protanopia,
+   * deuteranopia and tritanopia.
+   *
+   * Measured worst pair: delta-E 15.97 (amber vs yellow under deuteranopia).
+   * tokens.test.ts re-derives this and fails below 15, so the palette cannot
+   * drift. Ordered so that the first colours handed out are the furthest apart.
+   *
+   * A hand-picked set is what this replaced: pink collapsed into grey under
+   * deuteranopia at delta-E 5.6. Do not hand-edit these without re-running the test. */
+  --accent-1: #f5a524;
+  --accent-2: #9a95f6;
+  --accent-3: #2dd4a7;
+  --accent-4: #d899d2;
+  --accent-5: #f2e85c;
+  --accent-6: #a9efe8;
+  --accent-7: #ff7a5c;
+  --accent-8: #ccf3a5;
+
+  /* ---- Type ----
+   * Every number that can change gets tabular-nums, so a score counting down from
+   * 501 does not shuffle its own digits sideways. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --font-numeric: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 20px;
+  --text-xl: 26px;
+  --text-2xl: 34px;
+  --text-3xl: 44px;
+  --text-score: 60px;
+
+  --weight-regular: 400;
+  --weight-medium: 550;
+  --weight-bold: 700;
+
+  --leading-tight: 1.05;
+  --leading-normal: 1.35;
+
+  /* ---- Spacing ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  /* ---- Radii ---- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+  --radius-full: 999px;
+
+  /* ---- Elevation ---- */
+  --elevation-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --elevation-2: 0 4px 12px rgba(0, 0, 0, 0.45);
+  --elevation-3: 0 -8px 32px rgba(0, 0, 0, 0.55);
+
+  /* ---- Touch ----
+   * Hard floor for anything tappable. Enforced by components.test.tsx. */
+  --touch-min: 56px;
+
+  /* ---- Safe areas ---- */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+
+  /* ---- Motion ---- */
+  --duration-fast: 90ms;
+  --duration-normal: 180ms;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+}

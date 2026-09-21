@@ -1,0 +1,117 @@
+.cricket {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.cricket__board {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: 0;
+}
+
+/* Player | target | player. The header and every mark row share this grid, so
+ * the target column stays a single vertical spine down the middle. */
+.cricket__header,
+.cricket__row {
+  display: grid;
+  grid-template-columns: 1fr 64px 1fr;
+  gap: var(--space-1);
+}
+
+.cricket__header {
+  flex: none;
+}
+
+.cricket__row {
+  flex: 1 1 0;
+  min-height: 44px;
+}
+
+.cricket__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-2) var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.cricket__head--active {
+  background: var(--color-surface-raised);
+  border-color: var(--color-text-secondary);
+}
+
+.cricket__head-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.cricket__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  display: inline-block;
+  flex: none;
+}
+
+.cricket__head-score {
+  font-family: var(--font-numeric);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.cricket__target {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+/* Marks cell. The glyph is the primary signal; closed cells also change
+ * background and border, so the state never rests on colour alone. */
+.cricket__marks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.12em;
+  color: var(--color-text);
+}
+
+.cricket__marks--closed {
+  background: var(--color-surface-raised);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.cricket__marks--empty {
+  color: var(--color-text-muted);
+}
+
+.cricket__keys {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}

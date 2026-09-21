@@ -1,0 +1,142 @@
+.sg {
+  height: 100dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-top: calc(var(--space-4) + var(--safe-top));
+  padding-bottom: calc(var(--space-8) + var(--safe-bottom));
+  padding-left: calc(var(--space-4) + var(--safe-left));
+  padding-right: calc(var(--space-4) + var(--safe-right));
+}
+
+.sg__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+}
+
+.sg__lede {
+  margin: 0 0 var(--space-6);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.sg__section {
+  margin-bottom: var(--space-7);
+}
+
+.sg__h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: var(--space-2);
+}
+
+.sg__h3 {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-muted);
+}
+
+.sg__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.sg__stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sg__keys {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-2);
+}
+
+/* Token swatches */
+.sg__swatches {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+}
+
+.sg__swatch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+}
+
+.sg__swatch-chip {
+  height: 48px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+}
+
+.sg__type-sample {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+}
+
+.sg__type-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.sg__type-name {
+  flex: none;
+  width: 90px;
+  font-size: var(--text-xs);
+  color: var(--color-text-muted);
+}
+
+/* Sheet is position: fixed, which would pin it to the viewport and cover the
+ * page. A transform on an ancestor makes it the containing block for fixed
+ * descendants, which traps both the sheet and its scrim inside this frame. */
+.sg__sheet-demo {
+  position: relative;
+  height: 340px;
+  transform: translateZ(0);
+  overflow: hidden;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* Links out to the full-screen mockups */
+.sg__mocklinks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.sg__mocklink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  text-decoration: none;
+  font-weight: var(--weight-medium);
+}
+
+.sg__mocklink-hint {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
