@@ -1,5 +1,7 @@
 # pi-darts-scorekeeper
 
+[![CI](https://github.com/jackmcnulty/pi-darts-scorekeeper/actions/workflows/ci.yml/badge.svg)](https://github.com/jackmcnulty/pi-darts-scorekeeper/actions/workflows/ci.yml)
+
 A phone-first score-entry webapp for a home dartboard, served from a Raspberry Pi on the LAN.
 
 It plays 301/501/701 and American Cricket (standard, cut-throat, quick), solo or in teams, with
