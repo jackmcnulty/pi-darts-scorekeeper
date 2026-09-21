@@ -121,6 +121,24 @@ def test_inner_bull_counts_as_a_double() -> None:
     assert not Throw(BULL, SINGLE).is_double
 
 
+def test_inner_bull_stays_distinguishable_from_the_doubles_ring() -> None:
+    """`is_double` is lossy on its own; the throw it came from never is.
+
+    Because the inner bull reports `is_double is True`, anything that records
+    only that flag would flatten BULL into "some double". Every representation
+    a Throw actually carries keeps them apart, so an export that includes the
+    segment, the label or the score remains interpretable. Pinned here because
+    the place this can break is the export in #20, not this module.
+    """
+    inner_bull = Throw(BULL, DOUBLE)
+    other_doubles = [t for t in ALL_THROWS if t.is_double and t != inner_bull]
+
+    assert len(other_doubles) == 20
+    assert all(t.segment != inner_bull.segment for t in other_doubles)
+    assert all(t.label != inner_bull.label for t in other_doubles)
+    assert all(t.score != inner_bull.score for t in other_doubles)
+
+
 def test_no_throw_is_both_a_double_and_a_triple() -> None:
     assert not any(t.is_double and t.is_triple for t in ALL_THROWS)
 
