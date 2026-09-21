@@ -33,6 +33,10 @@ jobs:
       - name: Type check
         run: uv run mypy backend
 
+      # checkout_table.py is committed, so it can drift from the generator.
+      - name: Checkout table is up to date
+        run: uv run darts-gen-checkouts --check
+
       - name: Test
         run: uv run pytest --cov=backend/darts --cov-report=term-missing --cov-fail-under=85
 
