@@ -1,12 +1,21 @@
-"""Frozen dataclasses shared across more than one engine module.
+"""Frozen, rule-free values shared by rotation and replay."""
 
-Intentionally empty for now. #5 is vocabulary only, and the one type it defines
-— `Throw` — has a module of its own (`darts.engine.throws`). Nothing is shared
-yet, because there is nothing else in the engine to share it with. Inventing
-types here ahead of the tickets that need them would be guessing at game
-concepts this ticket explicitly puts out of scope.
+from dataclasses import dataclass
 
-The module exists so the home for such types is settled, and so the purity
-guard already covers it on the day something lands here. Anything added must be
-frozen, hashable and rule-free.
-"""
+
+@dataclass(frozen=True, slots=True)
+class Team:
+    """Members in visit order; strings are caller-owned member identifiers."""
+
+    members: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.members:
+            raise ValueError("a team must have at least one member")
+
+
+@dataclass(frozen=True, slots=True)
+class Thrower:
+    team_index: int
+    member_index: int
+    member: str

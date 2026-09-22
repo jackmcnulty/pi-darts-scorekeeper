@@ -81,5 +81,7 @@ docs/              architecture and data-model notes
 
 ## Docs
 
+- [Phase 1 validation and ticket coverage](docs/phase1-validation.md) — run
+  `bash scripts/validate-phase1.sh` for the repeatable engine acceptance gate.
 - [docs/architecture.md](docs/architecture.md)
 - [docs/data-model.md](docs/data-model.md)
