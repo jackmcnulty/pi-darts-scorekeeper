@@ -174,6 +174,18 @@ def test_nonzero_version_without_ledger_rejected(tmp_path: Path) -> None:
 
 
 def test_concurrent_startups_serialize(tmp_path: Path) -> None:
+    """Two boots at once apply every migration exactly once, between them.
+
+    Not "one of them does all the work". `migrate` takes the writer lock per
+    *file*, so a caller that loses the race for 0001 may well win it for 0002
+    and 0003, and which of them gets which is a property of the scheduler.
+    What the runner actually guarantees -- because `_verify_applied` runs
+    inside the lock -- is that no file is applied twice and none is skipped,
+    which is what a Pi power-cycled into a double start needs.
+
+    That distinction was invisible while there were two migrations and a
+    narrow window. #22's third made it show up on CI.
+    """
     path = tmp_path / "shared.db"
     with connection(path):
         pass
@@ -186,7 +198,17 @@ def test_concurrent_startups_serialize(tmp_path: Path) -> None:
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: worker(), range(2)))
-    assert sorted(results) == [(), ALL_VERSIONS]
+
+    # Between them, each migration exactly once...
+    assert sorted(version for result in results for version in result) == list(ALL_VERSIONS)
+    # ...and neither of them applied one out of order.
+    for result in results:
+        assert list(result) == sorted(result)
+
+    with connection(path) as conn:
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == LATEST
+        ledger = conn.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
+        assert [row[0] for row in ledger] == list(ALL_VERSIONS)
 
 
 def test_cli_fresh_noop_and_failure(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
