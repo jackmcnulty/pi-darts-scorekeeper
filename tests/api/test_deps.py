@@ -1,10 +1,6 @@
-"""The per-request connection every endpoint from #17 onwards will take.
+"""Per-request connections work across FastAPI's sequential worker handoffs.
 
-#16 has no endpoint that writes, so the dependency is exercised here directly.
-The thread question is the point of these tests: `connect()` does not pass
-`check_same_thread=False`, and FastAPI runs a `def` endpoint in a worker
-thread, so a connection opened once and shared would fail the moment #17 used
-it.
+Concurrent setup requests in test_players_api cover cross-worker execution.
 """
 
 import threading
@@ -48,8 +44,8 @@ def test_a_request_gets_a_working_connection(wired: TestClient) -> None:
     assert response.json()["players"] == 0
 
 
-def test_the_connection_is_used_on_the_thread_that_opened_it(wired: TestClient) -> None:
-    """The failure this design avoids: SQLite refuses a cross-thread handle."""
+def test_sync_endpoint_runs_in_a_worker(wired: TestClient) -> None:
+    """Synchronous handlers run off the main thread."""
     assert wired.get("/api/rows").json()["thread"] != "MainThread"
 
 

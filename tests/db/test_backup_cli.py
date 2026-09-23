@@ -38,7 +38,7 @@ def test_backup_writes_beside_the_database_and_reports_what_it_did(
     out = capsys.readouterr().out
     (backup,) = discover(default_backup_dir(played), "darts")
     assert str(backup.path) in out
-    assert "schema version 1" in out
+    assert "schema version 2" in out
     assert "pruned 0" in out
     manifest = json.loads(backup.manifest_path.read_text())
     assert manifest["row_counts"]["darts"] == 15

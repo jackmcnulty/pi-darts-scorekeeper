@@ -218,7 +218,7 @@ def test_v_darts_denormalises_the_match_configuration(seeded: sqlite3.Connection
 def test_the_migrate_cli_installs_views(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path = tmp_path / "cli.db"
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 1; applied 1 migration(s); 2 view(s)\n"
+    assert capsys.readouterr().out == "schema version 2; applied 2 migration(s); 2 view(s)\n"
     with connection(path) as conn:
         assert view_names(conn) == EXPECTED
 
@@ -226,7 +226,7 @@ def test_the_migrate_cli_installs_views(tmp_path: Path, capsys: pytest.CaptureFi
     with connection(path) as conn:
         conn.execute("DROP VIEW v_darts")
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 1; applied 0 migration(s); 2 view(s)\n"
+    assert capsys.readouterr().out == "schema version 2; applied 0 migration(s); 2 view(s)\n"
     with connection(path) as conn:
         assert view_names(conn) == EXPECTED
 

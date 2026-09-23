@@ -35,3 +35,7 @@ class IdempotencyConflictError(ServiceError):
 
 class NothingToUndoError(ServiceError):
     """Undo was asked for on a leg that has no darts in it."""
+
+
+class MatchAbandonedError(ServiceError):
+    """An abandoned match no longer accepts play or undo."""

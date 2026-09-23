@@ -6,13 +6,13 @@ from contextlib import contextmanager
 from pathlib import Path
 
 
-def connect(path: str | Path) -> sqlite3.Connection:
+def connect(path: str | Path, *, check_same_thread: bool = True) -> sqlite3.Connection:
     """Open a connection with the durability settings required for every writer.
 
     Autocommit is enabled; use transaction() for a logical write operation.
     In-memory databases cannot use WAL and are intentionally rejected.
     """
-    conn = sqlite3.connect(path, isolation_level=None)
+    conn = sqlite3.connect(path, isolation_level=None, check_same_thread=check_same_thread)
     try:
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA busy_timeout = 5000")
@@ -28,9 +28,9 @@ def connect(path: str | Path) -> sqlite3.Connection:
 
 
 @contextmanager
-def connection(path: str | Path) -> Iterator[sqlite3.Connection]:
+def connection(path: str | Path, *, check_same_thread: bool = True) -> Iterator[sqlite3.Connection]:
     """Close the connection on exit, including on failure."""
-    conn = connect(path)
+    conn = connect(path, check_same_thread=check_same_thread)
     try:
         yield conn
     finally:

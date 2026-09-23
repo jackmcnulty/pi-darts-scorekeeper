@@ -3,7 +3,8 @@
 ## Principles
 
 Schema version 1 is defined by `backend/darts/db/migrations/0001_init.sql`.
-Tables use SQLite `STRICT` types (SQLite 3.37+); the JSON config check also needs
+Version 2 adds `abandoned_at` through `0002_abandoned_matches.sql`; version 1 stays
+immutable. Tables use SQLite `STRICT` types (SQLite 3.37+); the JSON config check also needs
 JSON functions. SQLite 3.38+ includes these by default. All boolean columns are
 INTEGER with explicit 0/1 checks. IDs are INTEGER primary keys allocated by SQLite;
 client request IDs are opaque TEXT. All ordering fields are zero-based.
@@ -43,7 +44,9 @@ do not duplicate the pure game engine.
 commit on success and rollback on any error, including a commit failure. Nested
 transactions raise rather than committing an outer caller's work. Use
 `transaction(conn, immediate=False)` for an explicit deferred/read transaction.
-Keep request transactions short; the factory retains SQLite's same-thread check.
+Keep request transactions short. The factory retains SQLite's same-thread check
+by default; API requests opt out because FastAPI can hand a request between
+workers. Each API connection is used sequentially and belongs to one request.
 
 WAL with FULL requests synchronization at each commit. Power-loss behavior still
 depends on the OS/storage honoring flushes; physical failure testing and DR
@@ -56,8 +59,8 @@ uv run darts-migrate /absolute/path/to/darts.db
 ```
 
 The parent directory must exist. Expected on a fresh file:
-`schema version 1; applied 1 migration(s); 2 view(s)`; running again prints
-`schema version 1; applied 0 migration(s); 2 view(s)` and changes no schema or
+`schema version 2; applied 2 migration(s); 2 view(s)`; running again prints
+`schema version 2; applied 0 migration(s); 2 view(s)` and changes no schema or
 ledger rows. Views are rebuilt on every run whether or not a migration applied.
 Failure prints a reason to stderr and returns exit status 1.
 
@@ -127,6 +130,7 @@ Referenced players cannot be deleted; archiving preserves history.
 | `best_of` | INTEGER | Positive odd number of legs, winning threshold `(best_of+1)//2`. |
 | `created_at` | TEXT | UTC creation timestamp, default now; match-level stats date filter. |
 | `completed_at` | TEXT? | UTC completion time. |
+| `abandoned_at` | TEXT? | UTC abandonment time; requires no winner or completion. |
 | `winner_team_id` | INTEGER? FK | Winning team in this match; NULL until won. |
 
 The promoted config's x01/cricket field combinations are checked. JSON/promoted
@@ -289,6 +293,7 @@ effect/event keys and cache keys. Explicit indexes additionally support:
 | Index | Query purpose |
 | --- | --- |
 | `matches_game_created` | Game/variant/date filtering. |
+| `matches_status_created` | Match status filtering and stable creation ordering. |
 | `matches_winner`, `legs_winner` | Win counts and winner-reference lookup. |
 | `team_members_player` | Player participation across matches. |
 | `visits_player_leg` | Per-player visit statistics. |

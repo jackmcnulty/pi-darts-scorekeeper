@@ -78,6 +78,7 @@ from darts.services.derive import Board, VisitVerdict
 from darts.services.errors import (
     IdempotencyConflictError,
     LegCompleteError,
+    MatchAbandonedError,
     MatchCompleteError,
     NothingToUndoError,
 )
@@ -415,6 +416,8 @@ def _project(conn: sqlite3.Connection, leg_id: int) -> public.GameState:
 
 def _reject_closed(board: Board) -> None:
     """Refuse a write to a leg or a match that has already been decided."""
+    if board.match.abandoned_at is not None:
+        raise MatchAbandonedError(f"match {board.match.id} is abandoned")
     if board.match.winner_team_id is not None:
         raise MatchCompleteError(f"match {board.match.id} is already won")
     if board.leg.winner_team_id is not None:
@@ -484,6 +487,8 @@ def undo(conn: sqlite3.Connection, leg_id: int) -> public.GameState:
     """
     with transaction(conn):
         board = derive.load(conn, leg_id)
+        if board.match.abandoned_at is not None:
+            raise MatchAbandonedError(f"match {board.match.id} is abandoned")
         darts = darts_for_leg(conn, leg_id)
         if not darts:
             raise NothingToUndoError(f"leg {leg_id} has no darts to undo")
