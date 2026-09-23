@@ -4,6 +4,140 @@
  */
 
 export interface paths {
+  '/api/admin/rebuild-caches': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Rebuild Caches
+     * @description Recompute every leg's replay cache from its darts.
+     *
+     *     The caches are disposable -- they exist only to resume an interrupted leg --
+     *     so this can never lose history, and on a database that is already correct it
+     *     changes nothing and reports `legs_changed: 0`.
+     */
+    post: operations['rebuild_caches_api_admin_rebuild_caches_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/admin/snapshot': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    get?: never
+    put?: never
+    /**
+     * Take Snapshot
+     * @description Republish `darts-latest.db` and `snapshot.json` in the snapshot directory.
+     *
+     *     Safe mid-game: the copy is a point-in-time image taken inside a read
+     *     transaction, and it is renamed into place, so a reader on the share either
+     *     keeps the file it already opened or gets the new one whole.
+     */
+    post: operations['take_snapshot_api_admin_snapshot_post']
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/export/darts.csv': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Every recorded dart as one CSV row
+     * @description One line per recorded dart, under the header documented in docs/data-model.md.
+     */
+    get: operations['darts_csv_api_export_darts_csv_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/export/db': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Download a fresh point-in-time copy of the database
+     * @description A fresh copy, taken now, with its WAL collapsed into it.
+     *
+     *     The copy is taken here rather than inside the generator so that a failure to
+     *     produce it is an error response, not a truncated download.
+     */
+    get: operations['export_db_api_export_db_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/export/matches.csv': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Every match as one CSV row
+     * @description One line per match, with its teams and players flattened into two cells.
+     */
+    get: operations['matches_csv_api_export_matches_csv_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/export/stats.json': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Stats Json
+     * @description Every player's report and the leaderboard, read as one consistent whole.
+     *
+     *     One object per player rather than one per dart, so this is small enough to
+     *     build in memory and is an ordinary JSON response rather than a stream.
+     */
+    get: operations['stats_json_api_export_stats_json_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/healthz': {
     parameters: {
       query?: never
@@ -486,6 +620,18 @@ export interface components {
      * @enum {string}
      */
     HealthState: 'healthy' | 'restored' | 'degraded' | 'unavailable' | 'not_started'
+    /** LeaderboardBlock */
+    LeaderboardBlock: {
+      /** Min Darts */
+      min_darts: number
+      /**
+       * Ranked By
+       * @constant
+       */
+      ranked_by: 'three_dart_average'
+      /** Rows */
+      rows: components['schemas']['LeaderboardRowResponse'][]
+    }
     /** LeaderboardResponse */
     LeaderboardResponse: {
       filter: components['schemas']['FilterResponse']
@@ -707,6 +853,20 @@ export interface components {
       display_name: string
     }
     /**
+     * RebuildResponse
+     * @description What the sweep found. `legs_changed` is 0 on a healthy database.
+     */
+    RebuildResponse: {
+      /** Legs Changed */
+      legs_changed: number
+      /** Legs Visited */
+      legs_visited: number
+      /** Rows After */
+      rows_after: number
+      /** Rows Before */
+      rows_before: number
+    }
+    /**
      * Rule
      * @description How a team is allowed to start scoring, and how they are allowed to finish.
      * @enum {string}
@@ -722,10 +882,52 @@ export interface components {
       segment: number
     }
     /**
+     * SnapshotResponse
+     * @description The manifest, plus where it and its database went.
+     *
+     *     The same facts `snapshot.json` carries, so a client that called this and a
+     *     client that read the file off #30's share are looking at one answer.
+     */
+    SnapshotResponse: {
+      /** Created At */
+      created_at: string
+      /** Manifest Path */
+      manifest_path: string
+      /** Path */
+      path: string
+      /** Row Counts */
+      row_counts: {
+        [key: string]: number
+      }
+      /** Schema Version */
+      schema_version: number
+      /** Size Bytes */
+      size_bytes: number
+      /** Snapshot */
+      snapshot: string
+    }
+    /**
      * StartRule
      * @enum {string}
      */
     StartRule: 'alternate' | 'loser_starts' | 'winner_starts' | 'fixed'
+    /**
+     * StatsExportResponse
+     * @description The whole statistical picture, as one document that can be saved to disk.
+     *
+     *     Self-describing on purpose: something read off #30's share months later has
+     *     to be able to say what it is, when it was true and what it was filtered to.
+     */
+    StatsExportResponse: {
+      filter: components['schemas']['FilterResponse']
+      /** Generated At */
+      generated_at: string
+      leaderboard: components['schemas']['LeaderboardBlock']
+      /** Players */
+      players: components['schemas']['PlayerStatsResponse'][]
+      /** Schema Version */
+      schema_version: number
+    }
     /** TargetResponse */
     TargetResponse: {
       /** Hit Rate */
@@ -873,6 +1075,169 @@ export interface components {
 }
 export type $defs = Record<string, never>
 export interface operations {
+  rebuild_caches_api_admin_rebuild_caches_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['RebuildResponse']
+        }
+      }
+    }
+  }
+  take_snapshot_api_admin_snapshot_post: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['SnapshotResponse']
+        }
+      }
+    }
+  }
+  darts_csv_api_export_darts_csv_get: {
+    parameters: {
+      query?: {
+        game_type?: components['schemas']['GameType'] | null
+        variant?: components['schemas']['Variant'] | null
+        since?: string | null
+        match_id?: number | null
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'text/csv': string
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  export_db_api_export_db_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/vnd.sqlite3': string
+        }
+      }
+    }
+  }
+  matches_csv_api_export_matches_csv_get: {
+    parameters: {
+      query?: {
+        game_type?: components['schemas']['GameType'] | null
+        variant?: components['schemas']['Variant'] | null
+        since?: string | null
+        match_id?: number | null
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'text/csv': string
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  stats_json_api_export_stats_json_get: {
+    parameters: {
+      query?: {
+        game_type?: components['schemas']['GameType'] | null
+        variant?: components['schemas']['Variant'] | null
+        since?: string | null
+        match_id?: number | null
+        min_darts?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['StatsExportResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
   healthz_api_healthz_get: {
     parameters: {
       query?: never

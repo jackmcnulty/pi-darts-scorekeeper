@@ -172,6 +172,41 @@ no stale `-wal` survives to be replayed over the restored file.
 
 A backup that fails its own `integrity_check` is refused.
 
+## Snapshots
+
+```sh
+uv run darts-snapshot /srv/darts/darts.db
+uv run darts-snapshot /srv/darts/darts.db --snapshot-dir /srv/share/darts
+```
+
+A snapshot is a backup with the history taken out. Where a backup is a growing,
+timestamped, pruned archive an operator restores *from*, a snapshot is a single
+file at a path other machines can be pointed at once and keep reading:
+`darts-latest.db`, beside a `snapshot.json` manifest, in `DARTS_SNAPSHOT_DIR`
+(default: a `snapshots/` directory beside the database). The name never changes,
+nothing is retained and nothing is pruned — each run replaces what the last one
+published. This is what the Samba share in #30 serves.
+
+Everything that makes the artifact trustworthy is shared with backups through
+`darts.db.artifact` rather than reimplemented: the copy goes through
+`Connection.backup()` inside a read transaction, its WAL is collapsed so the file
+needs no sidecar, the temporary is written in the destination directory and
+renamed into place with `os.replace`, and the manifest's row counts are read back
+out of the finished file. So a snapshot taken mid-game is a point-in-time image,
+a reader on the share never sees a partial file, and `user_version` and the
+installed views travel with it.
+
+The database is published before its manifest, the same ordering backups use: an
+interrupted run can leave a snapshot whose `snapshot.json` still describes the
+previous one, but never a manifest promising a snapshot that is absent. The
+manifest carries `created_at`, so a reader can always tell which it has.
+
+`POST /api/admin/snapshot` does the same thing over HTTP and returns the
+manifest. `GET /api/export/db` is deliberately *not* the same thing: it takes its
+own throwaway copy, streams it and deletes it, so a download can never leave the
+shared snapshot half-written. Neither serves the live database, whose most recent
+commits are in a `-wal` sidecar a client would not receive.
+
 ## What the tests prove
 
 ```sh
@@ -192,6 +227,18 @@ uv run pytest tests/db -v
   publication with no leftover temporaries, the retention bucket arithmetic, and
   a backup → wipe → restore round-trip.
 - `test_backup_cli.py` — both CLIs, including confirmation and exit codes.
+- `test_snapshot_consistency.py` — darts written on one thread while snapshots
+  are taken on another, gated on real commits rather than on a sleep. Every copy
+  passes `integrity_check` and `foreign_key_check`, holds exactly three darts
+  per visit (so none caught a transaction mid-flight), keeps `user_version`, and
+  carries no `-wal` sidecar while the live database is still in WAL mode.
+- `test_snapshot_cli.py` — `darts-snapshot`: destination, manifest, overriding
+  the directory, repeat runs replacing rather than accumulating, and exit codes.
+- `tests/services/test_snapshot.py` — the fixed names, the manifest agreeing
+  with the snapshot's actual contents, and atomic publication: the temporary is
+  written in the destination directory, a failure before publication leaves the
+  previous snapshot and its manifest untouched, and the published path is a
+  whole valid database at the instant the rename happens.
 
 **Scope note.** The `SIGKILL` tests prove that an abruptly killed *process*
 leaves a sound database. They say nothing about losing power to the SD card

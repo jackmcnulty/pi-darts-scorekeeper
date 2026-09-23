@@ -81,6 +81,17 @@ def _scopes() -> list[tuple[str, str, dict[str, Any]]]:
         (f"match/{name}", name, blank.narrowed_to(7).params())
         for name in (*per_player, "match_roster", "leg_lines")
     ]
+    # #20's exports read the same views under the same scope composition, so
+    # they are held to the same criteria. Both scopes are checked: narrowed to
+    # one match, which is what `?match_id=` must make cheap, and unfiltered,
+    # which is the whole-database download.
+    scopes += [
+        (f"match/{name}", name, blank.narrowed_to(7).params())
+        for name in ("export_darts", "export_matches")
+    ]
+    scopes += [
+        (f"export/{name}", name, blank.params()) for name in ("export_darts", "export_matches")
+    ]
     scopes += [
         ("leaderboard", "leaderboard", blank.params(min_darts=50)),
         (
@@ -190,6 +201,25 @@ def test_every_query_stays_inside_the_time_budget(
     assert elapsed < BUDGET_MS * CI_MULTIPLIER, (
         f"{label} took {elapsed:.1f} ms, more than {CI_MULTIPLIER}x the {BUDGET_MS} ms budget"
     )
+
+
+def test_the_darts_export_needs_no_sorter_even_over_fifty_thousand_rows(
+    bulk: tuple[sqlite3.Connection, BulkSize],
+) -> None:
+    """What makes #20's "exports stream rather than buffering" true end to end.
+
+    Python yielding one line at a time buys nothing if SQLite has to materialise
+    the whole result first. It does not: the export's `ORDER BY match_id,
+    leg_index, seq_in_leg` is satisfied by walking `legs(match_id, leg_index)`
+    and then `darts(leg_id, seq_in_leg)`, both of which are unique indexes the
+    schema already has, so rows arrive in order with no temporary B-tree behind
+    them. A reordering of the header that broke this would still be correct and
+    would quietly start buffering 50,000 rows on a Pi.
+    """
+    conn, _ = bulk
+    lines = plan(conn, "export_darts", StatsFilter().params())
+    assert not [line for line in lines if "ORDER BY" in line], lines
+    assert scans_a_base_table(lines) == []
 
 
 def test_every_packaged_query_is_covered_by_the_plan_assertions() -> None:

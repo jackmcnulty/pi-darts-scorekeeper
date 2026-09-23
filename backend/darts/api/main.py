@@ -25,7 +25,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from darts import __version__
+from darts.api.admin import router as admin_router
 from darts.api.errors import install_error_handlers
+from darts.api.export import router as export_router
 from darts.api.health import router as health_router
 from darts.api.logging_conf import RequestContextMiddleware, configure_logging
 from darts.api.matches import router as matches_router
@@ -120,6 +122,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(matches_router)
     app.include_router(play_router)
     app.include_router(stats_router)
+    app.include_router(export_router)
+    app.include_router(admin_router)
     mount_static(app, resolved.static_dir)
     return app
 
