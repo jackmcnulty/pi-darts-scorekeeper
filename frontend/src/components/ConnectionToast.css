@@ -1,0 +1,14 @@
+/* Pinned above everything, clear of the home indicator.
+ *
+ * Bottom rather than top: the Dynamic Island is at the top, and so is the
+ * score on every play screen. The bottom of an x01 screen is the keypad,
+ * which is unusable anyway while there is nothing to send the dart to. */
+.connection-toast {
+  position: fixed;
+  z-index: 100;
+  bottom: calc(var(--safe-bottom) + var(--space-4));
+  left: calc(var(--safe-left) + var(--space-4));
+  right: calc(var(--safe-right) + var(--space-4));
+  /* The toast reports; it never swallows a tap meant for the board behind it. */
+  pointer-events: none;
+}

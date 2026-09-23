@@ -7,7 +7,12 @@ var/
 *.db-wal
 *.db-shm
 frontend/dist/
-frontend/node_modules/
+# Unanchored, so it catches a node_modules anywhere -- including one a Node
+# tool creates at the repository root when it is run from the wrong directory,
+# which `git add -A` will stage a stray vitest cache out of quite happily.
+# This replaces a `frontend/node_modules/` line that never did any work:
+# frontend/.gitignore, scaffolded by Vite, already covers that one.
+node_modules/
 frontend/coverage/
 .coverage
 htmlcov/

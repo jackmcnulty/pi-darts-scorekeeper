@@ -12,6 +12,13 @@ domain rule refused for `conflict`, the health report for `service_unavailable`.
 The mapping from the two error hierarchies lands here rather than in #17/#18 so
 that an endpoint only ever has to raise: `NotFoundError` is a 404 wherever it
 comes from, and no route handler repeats that decision.
+
+`ErrorEnvelope` below is that shape as a model. Nothing serves it directly --
+the handlers all return `JSONResponse` -- but `envelope()` builds through it, so
+there is still exactly one spelling, and #21's `darts.api.openapi` publishes it
+as the error schema every route points at. Before that the generated TypeScript
+client described FastAPI's `HTTPValidationError`, which no route has returned
+since #16.
 """
 
 import logging
@@ -25,6 +32,7 @@ from typing import Any
 from fastapi import FastAPI
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, Field
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -60,6 +68,28 @@ _TRAILING_ERROR = re.compile(r"Error$")
 _CAMEL_BOUNDARY = re.compile(r"(?<!^)(?=[A-Z])")
 
 
+class ApiError(BaseModel):
+    """What went wrong: a code to branch on, a sentence, and the specifics."""
+
+    code: ErrorCode = Field(description="A closed vocabulary; branch on this, not on the message.")
+    message: str = Field(description="One sentence, safe to show a human.")
+    detail: Any = Field(
+        default=None,
+        description=(
+            "Whatever the code implies. Pydantic's per-field errors for "
+            "`validation_error`; `{'reason': ...}` for a refused domain rule, which "
+            "is how several distinct 409s are told apart without matching on prose; "
+            "the health report for `service_unavailable`; absent for the rest."
+        ),
+    )
+
+
+class ErrorEnvelope(BaseModel):
+    """The body of every failed `/api` response, whatever the status."""
+
+    error: ApiError
+
+
 def code_for_status(status: int) -> ErrorCode:
     if status in _BY_STATUS:
         return _BY_STATUS[status]
@@ -69,9 +99,16 @@ def code_for_status(status: int) -> ErrorCode:
 def envelope(
     status: int, code: ErrorCode, message: str, detail: Any = None, headers: Any = None
 ) -> JSONResponse:
-    """Build the response. The only place this shape is spelled out."""
-    body = {"error": {"code": str(code), "message": message, "detail": detail}}
-    return JSONResponse(body, status_code=status, headers=headers)
+    """Build the response. The only place this shape is spelled out.
+
+    The dump is deliberately python-mode, not JSON-mode: `detail` is typed
+    `Any` and already JSON-ready when it arrives -- `jsonable_encoder` for
+    pydantic's per-field errors, plain dicts everywhere else -- so it passes
+    through untouched rather than meeting a second encoder with its own
+    opinions. `ErrorCode` is a `StrEnum`, so `json.dumps` writes its value.
+    """
+    body = ErrorEnvelope(error=ApiError(code=code, message=message, detail=detail))
+    return JSONResponse(body.model_dump(), status_code=status, headers=headers)
 
 
 def _reason(exc: Exception) -> str:

@@ -16,6 +16,12 @@
     <meta name="apple-mobile-web-app-title" content="Darts" />
     <meta name="theme-color" content="#0b0e13" />
     <meta name="color-scheme" content="dark" />
+    <!-- iOS ignores the manifest's icons and reads this instead. Every file
+         named here is asserted into dist by src/pwa.test.ts: the server's SPA
+         fallback answers a missing one with index.html under a 200, so a typo
+         here would show up as a broken icon and never as a 404. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
     <title>Darts</title>
   </head>
   <body>
