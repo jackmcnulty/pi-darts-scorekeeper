@@ -139,6 +139,86 @@ name one situation rather than being told apart by their message.
 
 ### API
 
+`darts.api` sits above every other layer. `main.create_app` builds the
+application from a `Settings`; `uvicorn darts.api.main:app` gets one read from
+the environment, and tests pass their own so nothing depends on the machine.
+
+| Module | Responsibility |
+| --- | --- |
+| `api/main.py` | The app factory and the lifespan hooks. |
+| `api/deps.py` | Per-request settings, boot status and connection. |
+| `api/errors.py` | The error envelope and every exception handler. |
+| `api/health.py` | `/api/healthz` and `/api/version`. |
+| `api/static.py` | The built frontend, the SPA fallback, cache headers. |
+| `api/logging_conf.py` | Structured logging and the request-id middleware. |
+| `config.py` | Every path and port, from `DARTS_*`. |
+
+#### Configuration is one environment variable per thing
+
+`Settings` is a frozen dataclass read once at startup, with `DARTS_DB_PATH`,
+`DARTS_BACKUP_DIR`, `DARTS_SNAPSHOT_DIR`, `DARTS_STATIC_DIR`, `DARTS_PORT`,
+`DARTS_GIT_SHA` and `DARTS_LOG_LEVEL`. Backups and snapshots default to sitting
+beside the database, so moving the database to a USB SSD is `DARTS_DB_PATH` and
+a file copy. An unusable port or log level fails at startup rather than at
+first use. `git_sha` is whatever the image build stamped in and `unknown`
+otherwise; #28's Docker build is what sets it.
+
+#### One connection per request
+
+A FastAPI dependency opens a connection, yields it, and closes it when the
+request ends — `deps.ConnectionDep`. `connect()` does not pass
+`check_same_thread=False` and FastAPI runs a `def` endpoint in a worker thread,
+so a connection opened once at startup and shared would be used from a thread
+other than the one that created it, which SQLite refuses. Opening a local file
+is five PRAGMAs and no network, and this box serves one household.
+
+The API layer never opens a transaction. It calls a service, and
+[the caller owns the transaction](#the-caller-owns-the-transaction) means the
+service is that caller.
+
+#### One error envelope
+
+Every `/api` failure is `{"error": {"code", "message", "detail"}}`. `code` is a
+closed vocabulary — `validation_error`, `invalid_request`, `not_found`,
+`conflict`, `service_unavailable`, `internal` — and `detail` carries what the
+code implies: pydantic's per-field errors for a 422, a `reason` discriminator
+for a domain refusal, the health report for a 503.
+
+The mapping lives in `errors.install_error_handlers`, so an endpoint only ever
+raises. `NotFoundError` is a 404, `DuplicateNameError` a 409, `InvalidMatchError`
+a 422, any other `RepoError` a 400, and every `ServiceError` a 409 — each
+carrying `{"reason": "leg_complete"}` and the like, because several distinct
+refusals share the one code. An unhandled exception is a 500 whose traceback
+goes to the log and never to the client.
+
+#### Health has two independent failure conditions
+
+`/api/healthz` reports the cached boot `RecoveryStatus` *and* probes the
+database on every request, because the boot check cannot know the card went
+read-only an hour later. The probe opens a connection and reads
+`PRAGMA user_version`, which is the schema version the endpoint reports anyway;
+opening is itself the writability test, since `connect()` sets
+`journal_mode = WAL` and that fails on a database that cannot be written. So
+the check costs no write, which matters on a card that #28's `HEALTHCHECK` will
+poll for years.
+
+`degraded`, `unavailable` and `not_started` are 503. `restored` is 200: the
+restore already happened and the database is serviceable, so a monitor
+restarting the box over it would only throw the recovery away.
+
+#### Routing order is load-bearing
+
+`/api` routes and `/api/openapi.json` are declared before the static mount at
+`/`, so they keep winning against it. `StaticFiles(html=True)` is not an SPA
+fallback — it serves `index.html` for a *directory* request, which makes `/`
+work and `/history/42` a 404 — so `static.SpaStaticFiles` falls back to
+`index.html` on any 404 except under `api/`, where a typo must stay a JSON 404
+rather than becoming a page. `StaticFiles` also sets no `Cache-Control` at all,
+so hashed assets are marked `immutable` and everything else `no-cache` here.
+
+With no build present — the normal state in development and on CI, since
+`frontend/dist` is gitignored — nothing is mounted and unrouted paths say so.
+
 ### Frontend
 
 ## Deployment

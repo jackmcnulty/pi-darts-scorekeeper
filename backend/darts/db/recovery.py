@@ -1,8 +1,8 @@
 """Boot-time integrity check with automatic restore and a degraded fallback.
 
-#16 calls check_and_recover from the FastAPI lifespan hook and reports the
-returned status through /api/healthz. This module owns the decision, not the
-transport.
+The FastAPI lifespan calls check_and_recover at startup and reports the status
+it returns through /api/healthz for the life of the process. This module owns
+the decision, not the transport.
 """
 
 import logging

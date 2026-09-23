@@ -24,8 +24,13 @@ ENGINE_ROOT = REPO_ROOT / "backend" / "darts" / "engine"
 #: `fastapi` and `pydantic` are transport and belong at the edges.
 BANNED_MODULES = frozenset({"sqlite3", "fastapi", "pydantic", "datetime", "random", "os", "time"})
 
-#: Layers the engine sits underneath. It must not know they exist.
-BANNED_PACKAGES = frozenset({"darts.db", "darts.api", "darts.repo", "darts.services"})
+#: Layers the engine sits underneath. It must not know they exist. `darts.config`
+#: is not one of those layers but belongs here for the same reason `os` does:
+#: settings are an edge concern, and an engine that read one would stop being a
+#: pure function of its arguments.
+BANNED_PACKAGES = frozenset(
+    {"darts.db", "darts.api", "darts.repo", "darts.services", "darts.config"}
+)
 
 BANNED = BANNED_MODULES | BANNED_PACKAGES
 
