@@ -14,7 +14,8 @@ from darts.db.recovery import DatabaseState, check_and_recover
 from darts.db.views import VIEWS, ViewError, install_views, view_names
 from darts.tools.migrate import main
 
-EXPECTED = ("v_darts", "v_visits")
+#: Every view views.sql installs, in the name order `view_names` returns.
+EXPECTED = ("v_darts", "v_leg_players", "v_match_players", "v_visits")
 
 
 @pytest.fixture(scope="module")
@@ -47,7 +48,7 @@ def test_a_new_view_needs_no_migration_and_does_not_move_user_version(
 
     extended = tmp_path / "views.sql"
     extended.write_text(VIEWS.read_text() + "\nCREATE VIEW v_extra AS SELECT 1 AS one;\n")
-    assert install_views(db, extended) == ("v_darts", "v_extra", "v_visits")
+    assert install_views(db, extended) == tuple(sorted((*EXPECTED, "v_extra")))
 
     assert db.execute("PRAGMA user_version").fetchone()[0] == version
     assert db.execute("SELECT version, name, sha256 FROM schema_migrations").fetchall() == ledger
@@ -215,10 +216,69 @@ def test_v_darts_denormalises_the_match_configuration(seeded: sqlite3.Connection
     assert cricket["cricket_counted_marks"] >= 0
 
 
+def test_v_leg_players_has_one_row_per_leg_and_member(seeded: sqlite3.Connection) -> None:
+    """The grain #19's win counts are read at: membership, not who threw."""
+    expected = seeded.execute(
+        """SELECT count(*) FROM legs l
+           JOIN teams t ON t.match_id = l.match_id
+           JOIN team_members tm ON tm.team_id = t.id"""
+    ).fetchone()[0]
+    assert expected > 0
+    assert seeded.execute("SELECT count(*) FROM v_leg_players").fetchone()[0] == expected
+    duplicates = seeded.execute(
+        "SELECT leg_id, player_id FROM v_leg_players GROUP BY leg_id, player_id HAVING count(*) > 1"
+    ).fetchall()
+    assert duplicates == []
+
+
+def test_v_match_players_has_one_row_per_match_and_member(seeded: sqlite3.Connection) -> None:
+    expected = seeded.execute(
+        """SELECT count(*) FROM matches m
+           JOIN teams t ON t.match_id = m.id
+           JOIN team_members tm ON tm.team_id = t.id"""
+    ).fetchone()[0]
+    assert expected > 0
+    assert seeded.execute("SELECT count(*) FROM v_match_players").fetchone()[0] == expected
+
+
+def test_exactly_one_team_wins_a_completed_leg(seeded: sqlite3.Connection) -> None:
+    """`won` is per-player, so a 2v2 leg has two winners and two losers."""
+    rows = seeded.execute(
+        """SELECT leg_id, sum(won) AS winners, count(DISTINCT team_id) AS teams,
+                  leg_winner_team_id IS NOT NULL AS decided
+           FROM v_leg_players GROUP BY leg_id"""
+    ).fetchall()
+    assert rows
+    for row in rows:
+        members = seeded.execute(
+            "SELECT count(*) FROM v_leg_players WHERE leg_id = ? AND won = 1", (row["leg_id"],)
+        ).fetchone()[0]
+        assert row["winners"] == members
+        assert (members > 0) == bool(row["decided"])
+        assert row["teams"] >= 2
+
+
+def test_every_member_of_a_winning_team_is_credited(seeded: sqlite3.Connection) -> None:
+    """Match 2 is the 2v2: both partners take the leg its team won."""
+    winners = seeded.execute(
+        """SELECT player_id FROM v_leg_players
+           WHERE match_id = 2 AND won = 1 ORDER BY player_id"""
+    ).fetchall()
+    # Leg 0 went to the Reds (Ana and Cal); leg 1 is unfinished and credits nobody.
+    assert [row["player_id"] for row in winners] == [1, 3]
+
+
+def test_an_unfinished_match_credits_nobody_with_a_win(seeded: sqlite3.Connection) -> None:
+    assert (
+        seeded.execute("SELECT sum(won) FROM v_match_players WHERE match_id = 2").fetchone()[0] == 0
+    )
+
+
 def test_the_migrate_cli_installs_views(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path = tmp_path / "cli.db"
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 2; applied 2 migration(s); 2 view(s)\n"
+    expected = f"schema version 2; applied 2 migration(s); {len(EXPECTED)} view(s)\n"
+    assert capsys.readouterr().out == expected
     with connection(path) as conn:
         assert view_names(conn) == EXPECTED
 
@@ -226,7 +286,8 @@ def test_the_migrate_cli_installs_views(tmp_path: Path, capsys: pytest.CaptureFi
     with connection(path) as conn:
         conn.execute("DROP VIEW v_darts")
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 2; applied 0 migration(s); 2 view(s)\n"
+    rebuilt = f"schema version 2; applied 0 migration(s); {len(EXPECTED)} view(s)\n"
+    assert capsys.readouterr().out == rebuilt
     with connection(path) as conn:
         assert view_names(conn) == EXPECTED
 

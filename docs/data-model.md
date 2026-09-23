@@ -331,21 +331,72 @@ with its query surface rather than tables alone. The FastAPI lifespan calls
 | --- | --- | --- |
 | `v_darts` | One row per row in `darts` | Visit, leg, team, player and the whole match configuration denormalised in, plus the `cricket_dart_effects` row via a LEFT JOIN on its primary key. `score` is the raw board value (segment × multiplier), which is the x01 score only when `counted` is 1. |
 | `v_visits` | One row per row in `visits` | Adds `darts_thrown` and `total_scored`, plus the player and team that threw. A visit with no darts yet still appears, with both at 0. |
+| `v_leg_players` | One row per (leg, player eligible to throw in it) | Adds `won`, which is 1 exactly when the player's team won that leg. Read off `team_members`, so a partner who threw no darts is still credited. |
+| `v_match_players` | One row per (match, player) | The same, one level up: `won` is 1 exactly when the player's team won the match. |
 
 `total_scored` follows what `score_before`/`score_after` already mean per game
 type: for x01 the sum of the visit's counted darts, which is 0 for a busted
 visit because a bust uncounts every dart in it while the darts themselves remain
 in `v_darts`; for cricket the thrower's points gained. Cricket point events are
-one row per recipient and would multiply rows, so they are not in `v_darts`;
-#19 may add a view for them without a migration.
+one row per recipient and would multiply rows, so they are not in `v_darts`.
+
+The two participation views are wider than any one table by design. A leg is won
+by a *team*, and in a 2v2 one partner can finish a leg the other never threw in,
+so a win cannot be inferred from `v_darts` — it is a fact about membership. `won`
+is 0 whenever `winner_team_id` is NULL, which covers both an unfinished leg and
+an abandoned match (0002 makes `abandoned_at` and `winner_team_id` mutually
+exclusive), so no query needs a status test to keep abandonment out of a win
+count. Cricket point events still have no view: #19's metrics read marks from
+`cricket_dart_effects`, which `v_darts` already carries, and points from
+`v_visits.total_scored`.
 
 ## Statistics queries
 
-Implemented in #19 over views. Derive per-player statistics from player-attributed
-raw darts, not team totals or replay caches. Busts contribute actual dart count
-with zero score; undone darts do not exist. `tests/db/test_view_bypass.py` scans
-`backend/darts/stats/sql/` and fails any query reading `darts` or `visits`
-directly instead of through a view.
+Implemented in #19 over the views, in `backend/darts/stats/sql/*.sql` — one file
+per family, loaded by `darts.stats.queries`. Nothing is a stored counter, so a
+new metric is a new query and nothing else: no migration, no backfill, and full
+retroactive history over play recorded before the metric existed.
+`tests/db/test_view_bypass.py` scans that directory and fails any query reading
+`darts` or `visits` directly instead of through a view.
+
+Per-player statistics come from **player-attributed raw darts**, never team
+totals or replay caches. That is what makes the sharpest criterion hold: a 2v2
+match and four solo matches containing identical darts produce identical
+per-player numbers. A visit belongs to exactly one player, so aggregating per
+visit is already per player.
+
+| Decision | What it means |
+| --- | --- |
+| Busts | Their real dart count, zero points. The darts were thrown. |
+| Uncounted opening darts | The same: a double-in dart that missed is a dart thrown scoring 0. |
+| Undone darts | Absent entirely; #15 deleted the row, so there is nothing to filter. |
+| Unfinished legs and matches | Counted. Abandoned matches too — their darts were thrown, and 0002 makes `abandoned_at` and `winner_team_id` exclusive, so no win count needs a status clause. |
+| First-9 average | The player's **own** first nine darts in each leg. In a 2v2 a player throws alternate visits, so counting the *leg's* first nine would let a partner's darts into an individual statistic. |
+| x01 vs cricket | x01 metrics are always over x01 darts and cricket metrics over cricket darts, whether or not `?game_type=` was given. A 3-dart average mixing the two would be a number about nothing. |
+| Checkout percentage | Numerator: the dart that won the leg (a visit reaching 0 is checked out by exactly one of its darts). Denominator: #7's stored `was_checkout_attempt`. |
+| Best checkout | The highest such visit. Its `score_after` is 0, so the visit total and the remaining it cleared are one number. |
+| Cricket MPR | `counted_marks + surplus_marks` per three of the player's own darts — every mark that landed on a target, which is the conventional figure other apps report. |
+| Per-target hit rate | Darts on that target over *every* cricket dart in scope, misses included. |
+| Legs and matches won | Team outcomes, credited to every member of the winning team, and the documented exception to the identical-darts criterion. Read from `v_leg_players` / `v_match_players`, so a partner who threw no darts is still credited. |
+| `?since=` | Compared against the match's `created_at`, so a match is never split across the boundary. |
+| Nothing to report | A count is 0; an average is null. |
+
+### Why the scope is composed rather than bound
+
+Every query accepts the same scope parameters, but a parameter that is not set
+contributes **no predicate at all** — the query text is assembled from a closed
+set of fragments at `-- scope: <alias>` markers. The obvious spelling,
+`WHERE (:player_id IS NULL OR d.player_id = :player_id)`, cannot use an index:
+SQLite prepares a statement without knowing what will be bound to it. Measured
+over 50,000 darts it turns `SEARCH d USING INDEX darts_player_time (player_id=?)`
+into a full scan of `visits` — right answers, two to three times the work, and a
+plan that fails #19's own acceptance criterion. The markers are comments, so each
+file is still valid SQL that runs unscoped in a shell.
+
+`v_visits` is deliberately not used by any of these queries. It carries a
+`GROUP BY`, so it cannot be flattened into a caller and a `WHERE` may not reach
+the rows underneath; aggregating `v_darts` per visit gives the same answers and
+keeps the index seek.
 
 ## Fixture data
 

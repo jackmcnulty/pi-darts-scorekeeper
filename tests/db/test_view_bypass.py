@@ -1,10 +1,10 @@
 """#19's statistics queries must go through the views, not the base tables.
 
-`backend/darts/stats/sql/` does not exist yet, so the guard has nothing to scan
-and passes vacuously. That is the dangerous kind of test, so the scanner itself
-is exercised here against queries written for the purpose: whatever #19 adds, a
-bypass will be caught, and if the detection ever stops working these tests fail
-today rather than in silence.
+`backend/darts/stats/sql/` now exists and holds real queries, so
+`test_no_view_bypass` is no longer the vacuous pass it was written as. The
+scanner is still exercised against queries written for the purpose, because a
+detector that has stopped detecting should fail here rather than quietly agree
+that everything is fine.
 """
 
 import re
@@ -49,6 +49,40 @@ def scan(directory: Path) -> dict[str, list[str]]:
 def test_no_view_bypass() -> None:
     """Every packaged statistics query reads a view."""
     assert scan(STATS_SQL) == {}
+
+
+def test_the_guard_is_not_vacuous() -> None:
+    """There are queries to scan, and they do read the views.
+
+    `scan` returns {} both for a clean directory and for one that does not
+    exist, so the assertion above says nothing on its own until this holds.
+    """
+    files = sorted(STATS_SQL.rglob("*.sql"))
+    assert files, "#19 has landed; backend/darts/stats/sql/ must hold the queries"
+
+    read_a_view = 0
+    for path in files:
+        text = _COMMENTS.sub(" ", path.read_text(encoding="utf-8"))
+        assert re.search(r"\bFROM\b", text, re.IGNORECASE), path.name
+        read_a_view += len(re.findall(r"\b(?:FROM|JOIN)\s+v_[a-z_]+", text, re.IGNORECASE))
+    assert read_a_view >= len(files)
+
+
+def test_a_bypass_added_to_the_real_directory_would_be_caught(tmp_path: Path) -> None:
+    """The packaged queries, plus one that cheats, scanned the same way.
+
+    Copying the real files in proves the scanner is looking at the shape #19
+    actually writes -- CTEs, window functions and all -- rather than only at the
+    one-liners invented in this file.
+    """
+    for path in sorted(STATS_SQL.rglob("*.sql")):
+        (tmp_path / path.name).write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    assert scan(tmp_path) == {}
+
+    (tmp_path / "cheat.sql").write_text(
+        "-- name: sneaky\nSELECT player_id, count(*) FROM darts GROUP BY player_id;"
+    )
+    assert scan(tmp_path) == {"cheat.sql": ["darts"]}
 
 
 def test_the_stats_directory_is_scanned_when_it_exists(tmp_path: Path) -> None:

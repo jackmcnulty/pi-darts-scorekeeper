@@ -22,6 +22,9 @@ def test_the_schema_is_served_under_api(client: TestClient) -> None:
         "/api/legs/{leg_id}/darts",
         "/api/legs/{leg_id}/undo",
         "/api/legs/{leg_id}/checkout",
+        "/api/stats/players/{player_id}",
+        "/api/stats/leaderboard",
+        "/api/stats/matches/{match_id}",
     }
 
 
@@ -37,6 +40,43 @@ def test_every_play_route_documents_an_explicit_response_model(client: TestClien
     for (path, method), model in play.items():
         content = paths[path][method]["responses"]["200"]["content"]
         assert content["application/json"]["schema"]["$ref"].endswith(f"/{model}")
+
+
+def test_every_stats_route_documents_an_explicit_response_model(client: TestClient) -> None:
+    """Same rule as the play routes: #19's shapes are generated into the client too."""
+    paths = client.get("/api/openapi.json").json()["paths"]
+    stats = {
+        ("/api/stats/players/{player_id}", "get"): "PlayerReportResponse",
+        ("/api/stats/leaderboard", "get"): "LeaderboardResponse",
+        ("/api/stats/matches/{match_id}", "get"): "MatchReportResponse",
+    }
+    for (path, method), model in stats.items():
+        content = paths[path][method]["responses"]["200"]["content"]
+        assert content["application/json"]["schema"]["$ref"].endswith(f"/{model}")
+
+
+def test_the_stats_filters_are_documented_as_query_parameters(client: TestClient) -> None:
+    """The four the ticket names, on all three routes, plus the leaderboard's threshold.
+
+    FastAPI only expands a Pydantic query model when it is a route's *only*
+    query parameter, which is why `min_darts` lives inside the leaderboard's
+    model. If that ever regressed, these would collapse to one parameter called
+    `applied` and every request would 422.
+    """
+    paths = client.get("/api/openapi.json").json()["paths"]
+    for path in (
+        "/api/stats/players/{player_id}",
+        "/api/stats/leaderboard",
+        "/api/stats/matches/{match_id}",
+    ):
+        query = {
+            parameter["name"]
+            for parameter in paths[path]["get"]["parameters"]
+            if parameter["in"] == "query"
+        }
+        assert {"game_type", "variant", "since", "match_id"} <= query, path
+    leaderboard = paths["/api/stats/leaderboard"]["get"]["parameters"]
+    assert any(parameter["name"] == "min_darts" for parameter in leaderboard)
 
 
 def test_the_documented_responses_match_what_the_endpoints_return(client: TestClient) -> None:
