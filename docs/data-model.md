@@ -319,7 +319,7 @@ views.
 
 Views are installed by `darts-migrate` and by `recovery.check_and_recover`, so
 a database that was created, migrated or auto-restored at boot always comes back
-with its query surface rather than tables alone. #16's lifespan calls
+with its query surface rather than tables alone. The FastAPI lifespan calls
 `check_and_recover` and therefore needs no extra wiring.
 
 | View | Grain | Notes |

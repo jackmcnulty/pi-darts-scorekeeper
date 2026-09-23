@@ -46,6 +46,26 @@ cd frontend && npm ci && cd ..
 ./scripts/dev.sh
 ```
 
+The server creates its database at `var/darts.db` on first boot and checks it on
+every one. Everything it touches is one environment variable, so relocating the
+database is a config change and a file copy:
+
+| Variable | Default | What it is |
+| --- | --- | --- |
+| `DARTS_DB_PATH` | `var/darts.db` | The live database. |
+| `DARTS_BACKUP_DIR` | `backups/` beside the database | Where `darts-backup` writes. |
+| `DARTS_SNAPSHOT_DIR` | `snapshots/` beside the database | The read-only share (#20, #30). |
+| `DARTS_STATIC_DIR` | `frontend/dist` | The built frontend, if there is one. |
+| `DARTS_PORT` | `8000` | The port to serve on. |
+| `DARTS_GIT_SHA` | `unknown` | Stamped in by the image build. |
+| `DARTS_LOG_LEVEL` | `INFO` | Root log level. |
+
+`GET /api/healthz` reports the schema version, the build, and whether the last
+boot had to restore from a backup; it returns 503 when the database is degraded
+or unwritable. `GET /api/version` is the build alone, and the OpenAPI schema is
+at `/api/openapi.json`. Running the backend without a frontend build is normal —
+`/` then explains itself instead of serving the app.
+
 ### Checks
 
 Initialize or upgrade the local SQLite schema with

@@ -1,5 +1,8 @@
 .venv/
 __pycache__/
+# The development database, its backups and its snapshots: DARTS_DB_PATH
+# defaults to var/darts.db.
+var/
 *.db
 *.db-wal
 *.db-shm

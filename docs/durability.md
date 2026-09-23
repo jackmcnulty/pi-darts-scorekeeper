@@ -32,7 +32,14 @@ connection closes, SQLite removes it entirely — so "clean shutdown" means *no
 WAL or an empty one*, never a populated one. Asserting the file still exists
 would be asserting the wrong thing.
 
-#16 owns the `SIGTERM` lifespan hook that calls this.
+The FastAPI lifespan calls this on shutdown, which is what `SIGTERM` reaches:
+uvicorn handles the signal, finishes the graceful shutdown, and the hook opens
+a connection and truncates. A busy or failed checkpoint is logged as an error
+and never raised — an unclean shutdown is not worth failing the exit over, and
+committed data is durable either way thanks to `synchronous = FULL`; the WAL is
+simply replayed on the next boot.
+`tests/api/test_lifespan.py::test_sigterm_checkpoints_the_wal_before_the_process_exits`
+signals a real uvicorn process and inspects the WAL it leaves behind.
 
 ## Boot integrity check
 
@@ -82,7 +89,8 @@ the history a damaged database most needs.
 
 ### Recovery status
 
-`RecoveryStatus` is what #16's `/api/healthz` reports:
+`RecoveryStatus` is what `/api/healthz` reports, cached from the boot check for
+the life of the process:
 
 | Field | Meaning |
 | --- | --- |
@@ -91,8 +99,13 @@ the history a damaged database most needs.
 | `detail` | The failure that triggered recovery, if any. |
 | `quarantined_to` | Where the damaged file was kept. |
 | `restored_from` | The backup used, if one was. |
-| `degraded` | `state is DEGRADED` — #16 returns 503 on this. |
+| `degraded` | `state is DEGRADED` — `/api/healthz` returns 503 on this. |
 | `auto_restored` | Whether this boot performed a restore. |
+
+`restored` is reported but still serves a 200: the repair already happened.
+Health also probes the database live on every request, because a card that goes
+read-only after boot is invisible to a cached status — see
+[Health has two independent failure conditions](architecture.md#health-has-two-independent-failure-conditions).
 
 ## Backups
 
@@ -102,8 +115,8 @@ uv run darts-backup /srv/darts/darts.db --backup-dir /mnt/usb/darts --no-prune
 ```
 
 Backups default to a `backups/` directory beside the database, so relocating the
-database relocates both. #16 owns the Settings object that will make this
-configurable; until then `--backup-dir` is the override.
+database relocates both. The server takes the same default and overrides it with
+`DARTS_BACKUP_DIR`; for the CLIs, `--backup-dir` is the override.
 
 Copies go through `Connection.backup()`, which reads pages inside a read
 transaction — a snapshot taken mid-game is a point-in-time image, where `cp`

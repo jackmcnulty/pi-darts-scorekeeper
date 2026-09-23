@@ -66,8 +66,9 @@ class BackupResult:
 def default_backup_dir(database: Path) -> Path:
     """Backups sit beside the database, so relocating one relocates both.
 
-    #16 owns the Settings object that will make this configurable; until then
-    the CLI's --backup-dir is the override.
+    `darts.config.Settings` takes this as its default for `backup_dir`, so the
+    server and the CLIs agree on where backups live. `DARTS_BACKUP_DIR` is the
+    override for the server; `--backup-dir` is the override for the CLIs.
     """
     return database.parent / "backups"
 
