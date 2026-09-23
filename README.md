@@ -52,6 +52,11 @@ Initialize or upgrade the local SQLite schema with
 `uv run darts-migrate /absolute/path/to/darts.db` (parent directory must exist).
 See [the data model](docs/data-model.md) for transactions, migrations, and column definitions.
 
+Back up and restore that database with `uv run darts-backup /path/to/darts.db` and
+`uv run darts-restore /path/to/darts.db`. Backups default to a `backups/` directory
+beside the database. See [durability](docs/durability.md) for the boot integrity
+check, retention, and recovery behaviour.
+
 ```sh
 # Backend
 uv run ruff check .
@@ -89,3 +94,5 @@ docs/              architecture and data-model notes
   `bash scripts/validate-phase1.sh` for the repeatable engine acceptance gate.
 - [docs/architecture.md](docs/architecture.md)
 - [docs/data-model.md](docs/data-model.md)
+- [docs/durability.md](docs/durability.md) — shutdown checkpoint, boot integrity
+  check, backup and restore.

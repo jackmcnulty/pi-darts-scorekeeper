@@ -311,3 +311,6 @@ concurrent startup, reject 24 distinct illegal dart INSERTs via SQLite CHECKs,
 accept all 63 engine throws, reject duplicate request IDs and cross-match FKs,
 and exercise cascades through complete matches and individual darts. An automated
 documentation test compares every actual table/column against this document.
+
+The same directory covers crash durability, the boot integrity check, and the
+backup/restore CLIs; see [durability](durability.md).
