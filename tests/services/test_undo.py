@@ -71,7 +71,8 @@ def test_undo_to_an_empty_leg_leaves_nothing_behind(
     assert darts_for_leg(db, solo.leg_id) == []
     assert visits_for_leg(db, solo.leg_id) == []
     assert leg_state_for(db, solo.leg_id) == []
-    assert state.current_leg.last_visit is None
+    assert state.current_leg.current_visit is None
+    assert state.current_leg.previous_visit is None
     assert state.current_leg.teams[0].remaining == 301
     assert state.current_leg.darts_left == 3
 

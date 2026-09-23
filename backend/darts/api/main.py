@@ -29,6 +29,7 @@ from darts.api.errors import install_error_handlers
 from darts.api.health import router as health_router
 from darts.api.logging_conf import RequestContextMiddleware, configure_logging
 from darts.api.matches import router as matches_router
+from darts.api.play import router as play_router
 from darts.api.players import router as players_router
 from darts.api.static import mount_static
 from darts.config import Settings
@@ -116,6 +117,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router)
     app.include_router(players_router)
     app.include_router(matches_router)
+    app.include_router(play_router)
     mount_static(app, resolved.static_dir)
     return app
 

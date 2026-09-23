@@ -174,13 +174,28 @@ def test_the_public_state_carries_the_visit_just_thrown(
 ) -> None:
     state = throw_labels(db, solo.leg_id, ["T20", "D20"])
 
-    visit = state.current_leg.last_visit
+    visit = state.current_leg.current_visit
     assert visit is not None
     assert visit.player_id == state.teams[0].members[0].player_id
     assert [d.label for d in visit.darts] == ["T20", "D20"]
     assert visit.score_before == 301
     assert visit.score_after == 201
     assert visit.is_complete is False
+    # Two darts in, the visit is still open and there is nothing to recap yet.
+    assert state.current_leg.previous_visit is None
+
+
+def test_a_finished_visit_moves_from_current_to_previous(
+    db: sqlite3.Connection, solo: CreatedMatch
+) -> None:
+    """The third dart closes a visit, so it stops being the one being thrown."""
+    state = throw_labels(db, solo.leg_id, ["T20", "D20", "5"])
+
+    assert state.current_leg.current_visit is None
+    previous = state.current_leg.previous_visit
+    assert previous is not None
+    assert [d.label for d in previous.darts] == ["T20", "D20", "5"]
+    assert previous.is_complete is True
 
 
 def test_state_reads_without_writing(db: sqlite3.Connection, solo: CreatedMatch) -> None:
