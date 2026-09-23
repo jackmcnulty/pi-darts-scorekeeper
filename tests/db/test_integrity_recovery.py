@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from dbfixtures import add_visit, dump, scaffold
+from dbfixtures import SCHEMA_VERSION, add_visit, dump, scaffold
 
 from darts.db.backup import create
 from darts.db.connection import connection, transaction
@@ -78,7 +78,7 @@ def test_a_missing_database_is_created_rather_than_reported_as_damage(tmp_path: 
     assert status.detail == "created a new database"
     assert not status.auto_restored
     assert visit_count(database) == 0
-    assert dump(database)["schema_version"] == 2
+    assert dump(database)["schema_version"] == SCHEMA_VERSION
 
 
 def test_corruption_is_quarantined_and_the_newest_good_backup_restored(
@@ -142,7 +142,7 @@ def test_no_valid_backup_starts_empty_and_degraded_rather_than_crash_looping(
     assert status.quarantined_to is not None and status.quarantined_to.exists()
     # Usable immediately: empty, but migrated and serviceable.
     assert visit_count(played) == 0
-    assert dump(played)["schema_version"] == 2
+    assert dump(played)["schema_version"] == SCHEMA_VERSION
     assert "starting empty and DEGRADED" in caplog.text
 
 

@@ -3,8 +3,9 @@
 ## Principles
 
 Schema version 1 is defined by `backend/darts/db/migrations/0001_init.sql`.
-Version 2 adds `abandoned_at` through `0002_abandoned_matches.sql`; version 1 stays
-immutable. Tables use SQLite `STRICT` types (SQLite 3.37+); the JSON config check also needs
+Version 2 adds `abandoned_at` through `0002_abandoned_matches.sql`, and version 3
+adds `players.short_name` and `players.accent_index` through
+`0003_player_identity.sql`; earlier versions stay immutable. Tables use SQLite `STRICT` types (SQLite 3.37+); the JSON config check also needs
 JSON functions. SQLite 3.38+ includes these by default. All boolean columns are
 INTEGER with explicit 0/1 checks. IDs are INTEGER primary keys allocated by SQLite;
 client request IDs are opaque TEXT. All ordering fields are zero-based.
@@ -113,8 +114,17 @@ not required to be contiguous. FK actions below describe deletion, not undo logi
 | `display_name` | TEXT | Nonblank display name; need not be unique. |
 | `is_archived` | INTEGER | 0 by default; 1 hides the player from future pickers. |
 | `created_at` | TEXT | UTC creation timestamp, default now. |
+| `short_name` | TEXT? | Scoreboard label of 1–8 characters, stored already trimmed; NULL means use `display_name`. |
+| `accent_index` | INTEGER? | 1–8, one-based into the accent palette in `frontend/src/styles/tokens.css`; NULL means no colour. |
 
 Referenced players cannot be deleted; archiving preserves history.
+
+`accent_index` stores an index, not a colour. The eight accents were derived by a
+colour-blindness search that #4 forbids hand-editing, so hex values copied here
+would be free to drift from the ones the screens actually paint with. Uniqueness
+is deliberately not a constraint: eight colours cannot cover a ninth active
+player, so the service hands out the lowest-numbered least-held accent and the
+screen names the clash rather than refusing to add a real person.
 
 ### matches
 

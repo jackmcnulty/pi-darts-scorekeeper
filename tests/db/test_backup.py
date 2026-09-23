@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from dbfixtures import add_visit, dump, scaffold
+from dbfixtures import SCHEMA_VERSION, add_visit, dump, scaffold
 
 from darts.db.artifact import ArtifactError, collapse_wal
 from darts.db.backup import (
@@ -70,7 +70,7 @@ def test_backup_defaults_beside_the_database_and_writes_a_manifest(played: Path)
     manifest = json.loads(result.backup.manifest_path.read_text())
     assert manifest == result.manifest
     assert manifest["created_at"] == result.backup.stamp
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == SCHEMA_VERSION
     assert manifest["source"] == str(played)
     assert manifest["size_bytes"] == result.backup.path.stat().st_size
     # Counts are read back out of the artifact, not the live database.
@@ -265,7 +265,7 @@ def test_backup_wipe_restore_round_trips_every_row(played: Path) -> None:
     """#13 views, #14 repositories and #19 stats do not exist yet, so the
     round-trip is verified against the source tables statistics derive from."""
     before = dump(played)
-    assert before["schema_version"] == 2
+    assert before["schema_version"] == SCHEMA_VERSION
     result = create(played)
 
     for suffix in ("", *SIDECARS):

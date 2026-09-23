@@ -1,0 +1,90 @@
+.home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* RootLayout owns the notch and nothing else; the gutter is the screen's,
+     the same way Placeholder.css has had it since #21. */
+  padding: var(--space-6);
+}
+
+.home__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.home__resume {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-height: var(--touch-min);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+  box-shadow: var(--elevation-2);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.home__resume:active {
+  background: var(--color-surface-pressed);
+}
+
+.home__resume-eyebrow {
+  color: var(--color-primary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.home__resume-title {
+  font-family: var(--font-numeric);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.home__resume-players {
+  color: var(--color-text-secondary);
+}
+
+.home__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Links, not buttons: these are addresses, and a long-press should offer to
+ * open one. The 56px floor from #4 applies to them exactly as it does to a
+ * Button -- see home.test.tsx, which reads it off the cascade. */
+.home__action {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.home__action:active {
+  background: var(--color-surface-pressed);
+}
+
+.home__action--primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-text-on-fill);
+}
+
+.home__action--primary:active {
+  filter: brightness(0.85);
+  background: var(--color-primary);
+}

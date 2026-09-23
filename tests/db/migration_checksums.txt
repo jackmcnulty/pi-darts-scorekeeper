@@ -1,3 +1,4 @@
 # SHA-256 of exact migration bytes. Append new files; never revise existing entries.
 ee4fc649ff7367afa66f9561a05f2cefd48251c01bc26e4205134ec17c71ff6e  0001_init.sql
 bde95694b8aa0639ad0bdd2f7f82c09d7400e23104e1bdd57ff9bd83577ba880  0002_abandoned_matches.sql
+000a2b4673b59fb5ba170b066fe41a5e01b9b74b931f4acc9e939620c74a8fa2  0003_player_identity.sql

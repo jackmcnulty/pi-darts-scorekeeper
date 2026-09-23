@@ -14,7 +14,7 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-from apifixtures import make_settings
+from apifixtures import SCHEMA_VERSION, make_settings
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from seed import build
@@ -50,7 +50,7 @@ def test_taking_a_snapshot_publishes_the_pair_and_returns_its_manifest(
     assert body["snapshot"] == "darts-latest.db"
     assert body["path"] == str(settings.snapshot_dir / "darts-latest.db")
     assert body["manifest_path"] == str(settings.snapshot_dir / "snapshot.json")
-    assert body["schema_version"] == 2
+    assert body["schema_version"] == SCHEMA_VERSION
     assert body["size_bytes"] > 0
     assert body["created_at"].endswith("Z")
     assert body["row_counts"]["darts"] > 0
@@ -85,7 +85,7 @@ def test_the_published_snapshot_is_sound_and_self_contained(
         assert not published.with_name(published.name + suffix).exists()
     with closing(sqlite3.connect(read_only_uri(published), uri=True)) as conn:
         assert [row[0] for row in conn.execute("PRAGMA integrity_check")] == ["ok"]
-        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 2
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] != "wal"
 
 

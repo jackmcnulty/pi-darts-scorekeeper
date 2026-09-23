@@ -9,14 +9,37 @@ from darts.repo.config import GameConfig
 from darts.services.errors import MatchCompleteError
 
 
-def create_player(conn: sqlite3.Connection, display_name: str) -> players.Player:
+def create_player(
+    conn: sqlite3.Connection,
+    display_name: str,
+    *,
+    short_name: str | None = None,
+    accent_index: int | None = None,
+) -> players.Player:
+    # The colour is chosen inside the transaction, so two phones adding a player
+    # at the same moment cannot both be handed the same free accent.
     with transaction(conn):
-        return players.create_player(conn, display_name)
+        return players.create_player(
+            conn, display_name, short_name=short_name, accent_index=accent_index
+        )
 
 
-def update_player(conn: sqlite3.Connection, player_id: int, display_name: str) -> players.Player:
+def update_player(
+    conn: sqlite3.Connection,
+    player_id: int,
+    display_name: str,
+    *,
+    short_name: str | None | players.Unset = players.UNSET,
+    accent_index: int | None | players.Unset = players.UNSET,
+) -> players.Player:
     with transaction(conn):
-        return players.update_player(conn, player_id, display_name=display_name)
+        return players.update_player(
+            conn,
+            player_id,
+            display_name=display_name,
+            short_name=short_name,
+            accent_index=accent_index,
+        )
 
 
 def archive_player(conn: sqlite3.Connection, player_id: int) -> players.Player:

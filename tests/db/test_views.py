@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from dbfixtures import SCHEMA_VERSION
 from seed import build
 
 from darts.db.backup import create
@@ -277,7 +278,8 @@ def test_an_unfinished_match_credits_nobody_with_a_win(seeded: sqlite3.Connectio
 def test_the_migrate_cli_installs_views(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path = tmp_path / "cli.db"
     assert main([str(path)]) == 0
-    expected = f"schema version 2; applied 2 migration(s); {len(EXPECTED)} view(s)\n"
+    views, version = len(EXPECTED), SCHEMA_VERSION
+    expected = f"schema version {version}; applied {version} migration(s); {views} view(s)\n"
     assert capsys.readouterr().out == expected
     with connection(path) as conn:
         assert view_names(conn) == EXPECTED
@@ -286,7 +288,7 @@ def test_the_migrate_cli_installs_views(tmp_path: Path, capsys: pytest.CaptureFi
     with connection(path) as conn:
         conn.execute("DROP VIEW v_darts")
     assert main([str(path)]) == 0
-    rebuilt = f"schema version 2; applied 0 migration(s); {len(EXPECTED)} view(s)\n"
+    rebuilt = f"schema version {version}; applied 0 migration(s); {views} view(s)\n"
     assert capsys.readouterr().out == rebuilt
     with connection(path) as conn:
         assert view_names(conn) == EXPECTED

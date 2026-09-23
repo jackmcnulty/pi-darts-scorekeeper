@@ -1,0 +1,85 @@
+.players {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  /* RootLayout owns the notch and nothing else; the gutter is the screen's,
+     the same way Placeholder.css has had it since #21. */
+  padding: var(--space-6);
+}
+
+.players__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.players__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.players__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.players__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.players__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.players__row:active {
+  background: var(--color-surface-pressed);
+}
+
+/* Dimmed, not hidden: this screen is the only one that shows them at all. */
+.players__row[data-archived='true'] {
+  opacity: 0.55;
+}
+
+.players__dot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: var(--radius-full);
+  /* A player from before #22 has no colour, and the fallback says so quietly
+   * rather than borrowing somebody else's. */
+  background: var(--player-accent, var(--color-border-strong));
+}
+
+.players__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.players__short,
+.players__archived {
+  flex: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
