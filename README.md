@@ -57,6 +57,11 @@ Back up and restore that database with `uv run darts-backup /path/to/darts.db` a
 beside the database. See [durability](docs/durability.md) for the boot integrity
 check, retention, and recovery behaviour.
 
+Check a database against itself with `uv run darts-verify /path/to/darts.db`. It
+replays every leg from its raw darts and reports anything derived that no longer
+agrees — visit scores, dart flags, cricket effects and point events, the two
+replay caches, and the leg and match winners. It exits 0 when everything agrees.
+
 ```sh
 # Backend
 uv run ruff check .

@@ -9,6 +9,7 @@ import sqlite3
 
 from darts.repo.config import GameConfig
 from darts.repo.matches import CreatedMatch
+from darts.repo.visits import NewVisit, create_visit
 
 #: A valid, unremarkable x01 configuration, for tests that need any match at all.
 X01_501 = GameConfig(
@@ -41,29 +42,28 @@ def open_visit(
 ) -> int:
     """A `visits` row on `created`'s leg 0, returning its id.
 
-    Raw SQL on purpose: opening a visit is part of the play path and belongs to
-    #15, but a dart cannot exist without one, so the dart tests scaffold their
-    own rather than the repository growing a function outside its ticket.
+    Goes through `repo.visits.create_visit`, which #15 added: opening a visit
+    was play-path work when the dart tests were written, so they scaffolded
+    their own row in raw SQL. Now there is one way to open a visit and this is
+    a thin wrapper over it rather than a second one.
 
     `team_visit_index` is just `visit_index`, which is not what a real rotation
     would produce but does satisfy `UNIQUE (leg_id, team_id, team_visit_index)`
     for any distinct visits. Nothing here depends on its value.
     """
-    cursor = conn.execute(
-        """INSERT INTO visits(leg_id, match_id, team_id, player_id, visit_index,
-                              team_visit_index, score_before, score_after)
-           VALUES (?, ?, ?, ?, ?, ?, 501, 501)""",
-        (
-            created.leg_id,
-            created.match_id,
-            created.team_ids[team_index],
-            player_id,
-            visit_index,
-            visit_index,
+    return create_visit(
+        conn,
+        NewVisit(
+            leg_id=created.leg_id,
+            match_id=created.match_id,
+            team_id=created.team_ids[team_index],
+            player_id=player_id,
+            visit_index=visit_index,
+            team_visit_index=visit_index,
+            score_before=501,
+            score_after=501,
         ),
-    )
-    assert cursor.lastrowid is not None
-    return cursor.lastrowid
+    ).id
 
 
 def count(conn: sqlite3.Connection, table: str) -> int:

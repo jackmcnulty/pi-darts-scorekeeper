@@ -49,6 +49,7 @@ from darts.engine.x01 import Rule, X01Config, X01TeamState
 from darts.engine.x01 import apply_dart as x01_dart
 from darts.engine.x01 import apply_visit as x01_visit
 from darts.engine.x01 import initial_state as x01_initial
+from darts.repo.config import GameConfig
 
 #: Player display names, in `players.id` order starting at 1.
 PLAYERS: tuple[str, ...] = ("Ana", "Ben", "Cal", "Dee", "Eve", "Fin")
@@ -90,18 +91,28 @@ class MatchSpec:
         return tuple(int(len(m) == 1) for m in self.members)
 
     @property
+    def config(self) -> GameConfig:
+        """The validated settings this match was created with.
+
+        Built through `GameConfig` rather than assembled by hand so that the
+        fixture stores exactly what `create_match` stores. #13 wrote this by
+        hand, before #14 existed, and included a `teams` key that `GameConfig`
+        forbids -- which made every seeded match unreadable through
+        `repo.get_match`. The teams were always in the `teams` table anyway.
+        """
+        return GameConfig(
+            game_type=self.game_type,
+            best_of=self.best_of,
+            variant=self.variant,
+            start_score=self.start_score,
+            in_rule=self.in_rule,
+            out_rule=self.out_rule,
+        )
+
+    @property
     def config_json(self) -> str:
-        """The settings the match was created with, as the service would store them."""
-        settings = {
-            "game_type": self.game_type,
-            "variant": self.variant,
-            "start_score": self.start_score,
-            "in_rule": self.in_rule,
-            "out_rule": self.out_rule,
-            "best_of": self.best_of,
-            "teams": [list(m) for m in self.members],
-        }
-        return json.dumps({k: v for k, v in settings.items() if v is not None}, sort_keys=True)
+        """The settings the match was created with, as the service stores them."""
+        return self.config.to_json()
 
     def team_id(self, team_index: int) -> int:
         return self.id * 100 + team_index

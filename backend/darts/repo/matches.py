@@ -188,6 +188,23 @@ def create_match(
     return CreatedMatch(match_id=match_id, team_ids=tuple(team_ids), leg_id=leg_id)
 
 
+def set_match_winner(conn: sqlite3.Connection, match_id: int, winner_team_id: int | None) -> None:
+    """Record or withdraw a match's winner, moving `completed_at` with it.
+
+    The mirror of `legs.set_leg_winner`, and for the same reason: undoing the
+    dart that won the deciding leg has to unwin the match as well.
+
+    Raises `NotFoundError` if the match does not exist.
+    """
+    cursor = conn.execute(
+        "UPDATE matches SET winner_team_id = ?, completed_at = CASE WHEN ? IS NULL THEN NULL "
+        "ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END WHERE id = ?",
+        (winner_team_id, winner_team_id, match_id),
+    )
+    if cursor.rowcount == 0:
+        raise NotFoundError(f"no match with id {match_id}")
+
+
 def _teams_of(conn: sqlite3.Connection, match_id: int) -> tuple[Team, ...]:
     """The match's teams with their members, both in index order."""
     grouped: dict[int, tuple[sqlite3.Row, list[TeamMember]]] = {}

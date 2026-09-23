@@ -186,8 +186,12 @@ Primary key `(team_id, player_id)` prevents duplicate membership in a team.
 | `is_bust` | INTEGER | Default 0; 1 requires complete visit and equal before/after scores. |
 | `is_complete` | INTEGER | Default 0; 1 after three darts, bust or win. |
 
-`(id, leg_id, team_id, player_id)` is a unique dart-attribution key. The service
-preserves bust visits and updates all their darts to uncounted in one transaction.
+`(id, leg_id, team_id, player_id)` is a unique dart-attribution key. A visit is
+opened by its first dart and grown by the next two, so unlike `darts` these rows
+really are updated: `score_after`, `is_bust` and `is_complete` are rewritten
+together after every dart, because the CHECK is a statement about all three at
+once. `darts.services.play` preserves bust visits and updates all their darts to
+uncounted in the same transaction as the dart that busted.
 
 ### darts
 
@@ -223,8 +227,10 @@ from segment × multiplier and counted. Cricket scoring uses recipient events.
 | `wasted` | INTEGER | 1 when surplus pays nobody (dead target or quick); else 0. |
 
 Total marks cannot exceed 3 (2 for bull). NULL target requires zero marks and
-not wasted; wasted requires positive surplus. Exact agreement with the source
-throw and game rules is computed by replay in #15.
+not wasted; wasted requires positive surplus. The values come from
+`engine.cricket`'s own dart outcome, written by `darts.services.play` in the
+same transaction as the dart, and `darts-verify` recomputes them from the raw
+throw.
 
 ### cricket_point_events
 
@@ -255,7 +261,12 @@ lost when points go to opponents. Hard-delete undo removes all recipient events.
 | `points` | INTEGER | Nonnegative cricket points, default 0; unused/zero for x01. |
 
 Primary key `(leg_id, team_id)`. These values are rebuilt from raw history; they
-are not player statistics or a second source of truth.
+are not player statistics or a second source of truth — `darts.services.play`
+writes them and never reads them back. A leg holds rows here **exactly when it
+has at least one dart and no winner**: a leg nobody has thrown into has nothing
+to resume, and a finished leg is reconstructed from its darts.
+`play.rebuild_caches(conn, leg_id)` recomputes them and deletes as readily as it
+writes; `darts-verify` reports any disagreement without changing anything.
 
 ### cricket_leg_state
 

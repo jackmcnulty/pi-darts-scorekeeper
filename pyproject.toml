@@ -22,6 +22,7 @@ darts-backup = "darts.tools.backup:main"
 darts-gen-checkouts = "darts.tools.gen_checkouts:main"
 darts-migrate = "darts.tools.migrate:main"
 darts-restore = "darts.tools.restore:main"
+darts-verify = "darts.tools.verify:main"
 
 [dependency-groups]
 dev = [

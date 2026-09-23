@@ -72,3 +72,34 @@ def legs_for_match(conn: sqlite3.Connection, match_id: int) -> list[Leg]:
     """Every leg of a match in playing order."""
     rows = conn.execute(f"{_SELECT} WHERE match_id = ? ORDER BY leg_index", (match_id,))
     return [_row_to_leg(row) for row in rows]
+
+
+def set_leg_winner(conn: sqlite3.Connection, leg_id: int, winner_team_id: int | None) -> None:
+    """Record or withdraw a leg's winner, moving `completed_at` with it.
+
+    The two fields say the same thing twice, so they are written together and
+    never apart: a winner sets the completion time, and `None` -- which is what
+    undoing a winning dart needs -- clears both. The timestamp comes from
+    SQLite so that it is formatted exactly as the column's own default is.
+
+    Raises `NotFoundError` if the leg does not exist.
+    """
+    cursor = conn.execute(
+        "UPDATE legs SET winner_team_id = ?, completed_at = CASE WHEN ? IS NULL THEN NULL "
+        "ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now') END WHERE id = ?",
+        (winner_team_id, winner_team_id, leg_id),
+    )
+    if cursor.rowcount == 0:
+        raise NotFoundError(f"no leg with id {leg_id}")
+
+
+def delete_leg(conn: sqlite3.Connection, leg_id: int) -> None:
+    """Remove a leg, and by cascade everything recorded in it.
+
+    Undo is the only caller: completing a leg opens the next one, so undoing
+    the dart that completed it has to close that one again. Raises
+    `NotFoundError` if absent.
+    """
+    cursor = conn.execute("DELETE FROM legs WHERE id = ?", (leg_id,))
+    if cursor.rowcount == 0:
+        raise NotFoundError(f"no leg with id {leg_id}")
