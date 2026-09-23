@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 darts-gen-checkouts = "darts.tools.gen_checkouts:main"
+darts-migrate = "darts.tools.migrate:main"
 
 [dependency-groups]
 dev = [

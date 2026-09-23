@@ -48,6 +48,10 @@ cd frontend && npm ci && cd ..
 
 ### Checks
 
+Initialize or upgrade the local SQLite schema with
+`uv run darts-migrate /absolute/path/to/darts.db` (parent directory must exist).
+See [the data model](docs/data-model.md) for transactions, migrations, and column definitions.
+
 ```sh
 # Backend
 uv run ruff check .
