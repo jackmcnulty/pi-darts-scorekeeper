@@ -669,6 +669,15 @@ because the other game type has no use for them, and a match arriving without
 the one it needs is described by what it does have rather than by a
 plausible-looking default.
 
+**It is the newest in-progress match, and there can be more than one.** #22
+asserted here and in `api/matches.ts` that there could not, on the grounds that
+#23 would refuse to start a match while another was in progress. That was a
+prediction about an unwritten screen stated as a fact, and neither side does
+it: two `POST /api/matches` in a row both return 201, and #23 warns rather than
+refuses. `list_matches` orders `created_at DESC, id DESC`, so the card shows the
+newest — and an older one is not lost, it stays in progress and #26's history
+screen will show it. #23 corrected the comment.
+
 #### Archived players are hidden by the server, not by a screen
 
 `GET /api/players` excludes them unless asked, which is the list every picker
@@ -703,3 +712,132 @@ would be wrong.
 
 `RootLayout` owns the notch and nothing else, so each screen owns its own
 gutter, exactly as `Placeholder.css` has since #21.
+
+### Match setup screen (#23)
+
+`/setup` builds a `POST /api/matches` body and nothing else. It never sees a
+leg: on 201 it navigates to `/play/:matchId` and #24 takes over.
+
+#### The screen holds a reducer, and the reducer holds everything
+
+`setup/config.ts` is the whole of #23's logic — a `SetupState`, a pure
+`reduce`, and a `buildMatch` that turns state into the generated `MatchWrite`.
+`Setup.tsx` renders it and posts it. Three things follow that would otherwise
+be rules somebody has to remember:
+
+- **The start button and the payload are one decision.** `buildMatch` returns
+  `null` exactly when the state is not startable, which *is* #23's "at least 2
+  teams and every team has at least 1 player". The button is disabled when it
+  returns `null` and posts what it returns otherwise, so the two cannot
+  disagree about whether this is a match.
+- **Changing the game type keeps the teams**, because the `game` action copies
+  `assignments` through untouched. It is a property of the reducer rather than
+  something each screen has to be careful about.
+- **The enumeration is possible at all.** `config.test.ts` walks every
+  reachable state — 6 games × 3 in-rules × 3 out-rules × 5 leg counts × 7 team
+  shapes — and checks each body against the rules transcribed from
+  `repo/config.py` and `api/matches.py`.
+
+It is a `.ts` and not part of `Setup.tsx` because
+`react-refresh/only-export-components` fails a file exporting both a component
+and something else — the same reason `api/connection.ts` sits beside
+`components/ConnectionToast.tsx`.
+
+#### Tapping a player fills the smaller team
+
+#23 says both "solo is the default, one player per team" and "a 2v2 match is
+reachable in 6 taps or fewer". Those cannot both hold literally: four solo
+players are a four-way match, and pairing them up costs two taps more than the
+budget allows. Jack's call was to read "solo is the default" as "the default
+for two players" and make the fill alternate.
+
+So a tap on an unselected player puts them on the smaller team, A on a tie.
+From empty that is round-robin — A, B, A, B — which makes two players a 1v1,
+three a 2v1 and four a 2v2 with no pairing taps at all. Phrasing it as "the
+smaller team" rather than "every other tap" is what keeps it sensible after
+somebody is moved or dropped: the next tap refills the gap instead of counting
+past it.
+
+Tapping again walks a cycle: the team the fill chose, then the other one, then
+off the list. `Assignment.origin` records where the fill put them, and that is
+what makes the cycle total — a fixed A → B → off cycle would strand anyone the
+fill dropped on B, who could then never be moved to A. Uneven teams are one
+tap away in either direction, which is what #23's 2v1 and 2v3 ask for.
+
+Two teams, not N. The server is happy with more and `rotation.starting_team`
+rotates through any number, but a team-count control is not in #23, and a third
+bucket nobody asked for would cost a tap on the way to every match that does
+not want one. `TeamId` is `'A' | 'B'` rather than `0 | 1` so that confusing a
+team with an array index cannot typecheck.
+
+#### Legs to win, because every reachable value has to be legal
+
+`GameConfig` requires an odd `best_of` — `CHECK (best_of % 2 = 1)` in
+`0001_init.sql`, mirrored by `_check_odd_best_of`. #23 asked for a "best-of
+stepper (1, 3, 5, 7, …)", and #4's approved mockup showed `Stepper label="Legs
+to win" min={1} max={9}` with the default step of 1, which would walk straight
+through the even numbers the database refuses.
+
+The screen steps legs by one and sends `best_of = 2 × legs − 1`. Every value a
+thumb can reach is legal by construction rather than by a stepper whose `+`
+adds two, and "first to three" is how the count is said out loud. `MAX_LEGS` is
+5, which is the mockup's `max={9}` read as the best-of it actually was.
+
+#### One flat picker over six games
+
+#23 lists 301 / 501 / 701 / Cricket / cut-throat / quick; #4's mockup had a
+two-way x01-or-cricket control plus a chip row and no variant control at all.
+The backlog wins, and it is also the shape that keeps the six-tap budget: 501
+is the default, so the common case costs no taps in this section. It does mean
+the half of #23's first criterion about "hiding the variant control" is
+satisfied by construction — there is no separate variant control, because the
+variant is part of the choice.
+
+The x01 in-rule and out-rule controls are absent rather than disabled under
+cricket: a greyed-out "Double out" beside a cricket game implies it could
+apply, and it cannot. The leg stepper stays, because every game is played over
+legs. Both x01 rules survive a trip through cricket and back, so switching game
+type is never destructive.
+
+#### The starter is hardcoded to `alternate`
+
+`GameConfig` carries `start_rule` and `fixed_team`, and the engine implements
+all four rules in `rotation.py`. #23's scope has no starter control and neither
+did the mockup, so the screen sends `alternate` and `fixed_team: 0` — the
+values the server would have defaulted to. `loser_starts` is the common pub
+convention and is unreachable from the UI today; **#24 owns exposing it.**
+
+Both fields are sent explicitly rather than omitted. The served schema's
+`required` for `GameConfig` is only `['game_type', 'best_of']`, but
+`openapi-typescript` emits a property with a default as always present, so the
+generated type demands them. Sending them typechecks, is valid, and is honest
+about what the match is. The generator is not the thing to fix.
+
+#### A match in progress is a warning, not a wall
+
+Opening `/setup` while something is still being played shows a line naming it
+with a link to resume, and leaves the start button alone. Nothing on the server
+stops a second match — two `POST /api/matches` both return 201 — and on a
+shared phone at a board, "start another one" is a thing people legitimately do.
+What would be wrong is starting one without saying the first is still open.
+
+#### The payload claim was measured, not just asserted
+
+"The payload posted validates server-side on the first try for every reachable
+UI configuration" is a claim about all of them, which worked examples cannot
+discharge. It was checked two ways during #23:
+
+1. `setup/config.test.ts` enumerates the reachable states and asserts each body
+   against the constraints transcribed from the server. This is the committed
+   test.
+2. The same enumeration — 1,890 bodies — was dumped and fed through the real
+   `MatchWrite.model_validate`. All 1,890 were accepted, with positive controls
+   confirming the validator still rejected an even `best_of`, an x01 config
+   carrying a variant, and a player on two teams. Six of them, one per game the
+   picker offers, were then posted through a live `TestClient` and came back
+   201 with the teams echoed exactly.
+
+The second is a development-time measurement rather than a committed test,
+because a committed one would mean a backend test file for a frontend ticket.
+The committed test is the transcription, and the transcription is the thing to
+re-read if the server's rules ever move.

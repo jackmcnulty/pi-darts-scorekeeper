@@ -6,7 +6,7 @@
  * `index.html` to any non-`/api` path, the app boots with no history behind
  * it, and the client alone decides what that path means.
  *
- * Since #22 two of those addresses fetch, so the mount goes through
+ * Since #22 several of those addresses fetch, so the mount goes through
  * `renderApp`, which supplies the query client the app supplies, in front of a
  * Pi that answers. What each screen does with the answer is its own test file's
  * business; this one is about which screen a path reaches.
@@ -53,10 +53,11 @@ function expectCleanConsole() {
 
 const openAt = renderApp
 
-describe('the screens #22 built', () => {
+describe('the screens that are built', () => {
   it.each([
     ['/', 'Darts'],
     ['/players', 'Players'],
+    ['/setup', 'New match'],
   ])('%s routes to the real %s screen, not a placeholder', async (path, title) => {
     openAt(path)
     expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument()
@@ -65,9 +66,8 @@ describe('the screens #22 built', () => {
   })
 })
 
-describe('the screens #23 onwards will fill in', () => {
+describe('the screens #24 onwards will fill in', () => {
   it.each([
-    ['/setup', 'New match', '#23'],
     ['/history', 'History', '#26'],
     ['/stats', 'Stats', '#27'],
   ])('%s routes to %s', (path, title, ticket) => {

@@ -1,0 +1,183 @@
+/*
+ * Lifted from #4's SetupMockup.css, which is the approved layout: the same
+ * section gap, the same uppercase legend, the same player row. What is new is
+ * the scroll/footer split — the mockup faked it with a fixed frame, and a real
+ * screen with eight players on the roster needs the start button to stay put
+ * while the list moves under it.
+ */
+
+.setup {
+  display: flex;
+  flex-direction: column;
+  /* RootLayout owns the notch and nothing else; the gutter is the screen's,
+     the same way Players.css has had it since #22. */
+  padding: var(--space-6);
+  gap: var(--space-4);
+  /* The shell gives this the viewport; the body scrolls inside it. */
+  min-height: 100%;
+}
+
+.setup__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.setup__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* A back chevron is small; its target is not. */
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  margin-left: calc(var(--space-4) * -1);
+  color: var(--color-text);
+  font-size: var(--text-2xl);
+  line-height: 1;
+  text-decoration: none;
+}
+
+.setup__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.setup__notice {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.setup__notice a {
+  color: var(--color-primary);
+}
+
+.setup__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.setup__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.setup__legend {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.setup__hint,
+.setup__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}
+
+.setup__note a,
+.setup__hint a {
+  color: var(--color-primary);
+}
+
+.setup__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.setup__players {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.setup__player {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.setup__player:active {
+  background: var(--color-surface-pressed);
+}
+
+/* Playing reads as raised and outlined; sitting out reads as the plain row it
+ * was. The team badge carries the actual answer — colour alone would not say
+ * which side, and two teams cannot be told apart by "selected". */
+.setup__player[aria-pressed='true'] {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-strong);
+}
+
+.setup__player-dot {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: var(--radius-full);
+  /* A player from before #22 has no colour, and the fallback says so quietly
+   * rather than borrowing somebody else's. */
+  background: var(--player-accent, var(--color-border-strong));
+}
+
+.setup__player-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.setup__player-team {
+  flex: none;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--color-surface-pressed);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+}
+
+.setup__footer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: none;
+  position: sticky;
+  bottom: 0;
+  /* Clears the home indicator on a phone; zero on anything without one. */
+  padding-bottom: var(--safe-bottom);
+  background: var(--color-bg);
+}
+
+.setup__error {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+}

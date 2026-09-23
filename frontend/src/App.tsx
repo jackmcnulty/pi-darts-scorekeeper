@@ -7,8 +7,8 @@
  * thing rather than a thing wrapped in a thing.
  *
  * #21 made every path real and every screen a `Placeholder`; #22 replaced the
- * first two with `Home` and `Players`. The remaining placeholders each name the
- * ticket that replaces them. The paths themselves were the part worth getting
+ * first two with `Home` and `Players`, and #23 replaced `/setup`. The
+ * remaining placeholders each name the ticket that replaces them. The paths themselves were the part worth getting
  * right early, because #16's SPA fallback means the server will hand
  * `index.html` to any of them on a cold reload and the client alone has to
  * agree about what they mean.
@@ -27,6 +27,7 @@ import { NotFound } from './routes/NotFound'
 import { Placeholder } from './routes/Placeholder'
 import { Players } from './routes/Players'
 import { RootLayout } from './routes/RootLayout'
+import { Setup } from './routes/Setup'
 
 export default function App() {
   return (
@@ -34,7 +35,7 @@ export default function App() {
       <Route element={<RootLayout />}>
         <Route index element={<Home />} />
         <Route path="players" element={<Players />} />
-        <Route path="setup" element={<Placeholder title="New match" ticket="#23" />} />
+        <Route path="setup" element={<Setup />} />
         {/* One path for both game types: #24 is x01 and #25 is cricket, but a
             match knows which it is, and the player only ever taps "play". */}
         <Route path="play/:matchId" element={<Placeholder title="Play" ticket="#24 / #25" />} />
