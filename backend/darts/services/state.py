@@ -86,6 +86,11 @@ class TeamLegState:
     darts_thrown: int
     points: int
     marks: Mapping[int, int] | None
+    #: This leg's 3-dart average, None before the team's first dart and in
+    #: cricket. Carried here rather than left to the client so that the app has
+    #: one definition of the statistic, shared with #19; see
+    #: `derive.three_dart_average` for the arithmetic and the scope.
+    three_dart_average: float | None
 
 
 @dataclass(frozen=True, slots=True)

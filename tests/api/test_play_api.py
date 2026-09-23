@@ -275,6 +275,35 @@ def test_the_standalone_checkout_route_404s_for_an_unknown_leg(client: TestClien
 
 
 # --------------------------------------------------------------------------
+# Three-dart average
+# --------------------------------------------------------------------------
+
+
+def test_the_three_dart_average_reaches_the_wire(client: TestClient) -> None:
+    """#24's scoreboard reads this off the payload rather than deriving it.
+
+    The arithmetic itself is `tests/services/test_play_average.py`; what this
+    asserts is that the field is serialised, that it is null before a team's
+    first dart rather than absent or 0, and that it is a number afterwards.
+    """
+    match = new_match(client, X01_501)
+    leg = leg_of(match)
+
+    before = client.get(f"/api/matches/{match['id']}/state").json()
+    assert [team["three_dart_average"] for team in before["current_leg"]["teams"]] == [None, None]
+
+    body = throw_all(client, leg, ["T20", "T20", "T20"]).json()
+    assert [team["three_dart_average"] for team in body["current_leg"]["teams"]] == [180.0, None]
+
+
+def test_cricket_reports_no_three_dart_average(client: TestClient) -> None:
+    match = new_match(client, cricket("standard"))
+    body = throw_all(client, leg_of(match), ["T20", "T19", "T18"]).json()
+
+    assert [team["three_dart_average"] for team in body["current_leg"]["teams"]] == [None, None]
+
+
+# --------------------------------------------------------------------------
 # Current and previous visit
 # --------------------------------------------------------------------------
 

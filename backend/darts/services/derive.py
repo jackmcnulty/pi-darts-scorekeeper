@@ -179,6 +179,41 @@ def darts_thrown(leg: LegState, team_index: int) -> int:
     )
 
 
+def three_dart_average(leg: LegState, team_index: int) -> float | None:
+    """One team's 3-dart average so far in this leg, or None if it has no darts.
+
+    The same arithmetic as #19's `x01_totals`: `3 * sum(counted * score) /
+    darts`, so a busted visit scores nothing while its darts still cost their
+    place in the denominator. Multiplying by `counted` is what does that, and it
+    also zeroes a dart thrown before a double-in is satisfied.
+
+    None rather than 0 for a team yet to throw, which is #19's rule for the
+    whole stats layer: a count of nothing is 0, an average of nothing does not
+    exist. Also None for a cricket leg, which is scored by marks per round --
+    `report.X01Stats` is computed from x01 darts alone for the same reason.
+
+    Two scopes differ from `x01_totals` deliberately, because this is what a
+    live scoreboard shows rather than a player's record. It is per *team*, since
+    that is what a `ScoreCard` is and what `TeamLegState` describes -- in a 2v2
+    it aggregates both members' darts. And it is per *leg*, matching the scope
+    of the `remaining` it sits beside, which also means it needs nothing but the
+    replay that `play._project` has already done.
+    """
+    if not isinstance(leg.teams[team_index], x01.X01TeamState):
+        return None
+    darts = 0
+    scored = 0
+    for visit in leg.visits:
+        if visit.thrower.team_index != team_index:
+            continue
+        assert isinstance(visit.outcome, x01.VisitOutcome)
+        for dart in visit.outcome.darts:
+            darts += 1
+            if dart.counted:
+                scored += dart.throw.score
+    return None if darts == 0 else 3.0 * scored / darts
+
+
 def team_cache(board: Board, leg: LegState, team_index: int) -> TeamCache:
     """One team's position, counted off the replay rather than off the rows."""
     team_state = leg.teams[team_index]
