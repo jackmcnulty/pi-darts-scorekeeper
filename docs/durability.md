@@ -58,8 +58,12 @@ On failure, in order:
 4. If no valid backup exists, an empty database is created and the status is
    `DEGRADED` — never a crash loop.
 
-Every outcome ends with migrations applied, so a backup taken at an older schema
-version is serviceable the moment recovery returns.
+Every outcome ends with migrations applied *and the views reinstalled*, so a
+backup taken at an older schema version is serviceable the moment recovery
+returns. Views are not carried by the migration ledger, so without that second
+step a restored database would come back with its tables but no query surface,
+and nothing would notice until the first statistics request. See
+[Views](data-model.md#views).
 
 ### What is *not* treated as corruption
 

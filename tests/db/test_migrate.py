@@ -181,8 +181,8 @@ def test_concurrent_startups_serialize(tmp_path: Path) -> None:
 def test_cli_fresh_noop_and_failure(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path = tmp_path / "cli.db"
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 1; applied 1 migration(s)\n"
+    assert capsys.readouterr().out == "schema version 1; applied 1 migration(s); 2 view(s)\n"
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 1; applied 0 migration(s)\n"
+    assert capsys.readouterr().out == "schema version 1; applied 0 migration(s); 2 view(s)\n"
     assert main([str(tmp_path / "missing" / "cannot.db")]) == 1
     assert "migration failed" in capsys.readouterr().err
