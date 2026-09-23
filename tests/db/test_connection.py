@@ -55,3 +55,12 @@ def test_connection_closes_after_exception(tmp_path: Path) -> None:
         raise RuntimeError("injected")
     with pytest.raises(sqlite3.ProgrammingError):
         conn.execute("SELECT 1")
+
+
+def test_non_api_connections_keep_thread_affinity(db: sqlite3.Connection) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(db.execute, "SELECT 1")
+        with pytest.raises(sqlite3.ProgrammingError, match="same thread"):
+            future.result()

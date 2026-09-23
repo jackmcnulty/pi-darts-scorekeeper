@@ -165,12 +165,14 @@ otherwise; #28's Docker build is what sets it.
 
 #### One connection per request
 
-A FastAPI dependency opens a connection, yields it, and closes it when the
-request ends — `deps.ConnectionDep`. `connect()` does not pass
-`check_same_thread=False` and FastAPI runs a `def` endpoint in a worker thread,
-so a connection opened once at startup and shared would be used from a thread
-other than the one that created it, which SQLite refuses. Opening a local file
-is five PRAGMAs and no network, and this box serves one household.
+A FastAPI dependency opens one connection, yields it, and closes it when the
+request ends — `deps.ConnectionDep`. Dependency entry, synchronous endpoint
+execution, and cleanup may run on different worker threads. API connections
+therefore use `check_same_thread=False`; the factory retains `True` by default
+for other callers. Each connection belongs exclusively to one request, and
+these stages execute sequentially. Never share it with concurrent work within
+a request or with another request. The concurrent player-creation regression
+covers the thread-handoff failure that single-request tests cannot expose.
 
 The API layer never opens a transaction. It calls a service, and
 [the caller owns the transaction](#the-caller-owns-the-transaction) means the
@@ -224,3 +226,42 @@ With no build present — the normal state in development and on CI, since
 ## Deployment
 
 ## Durability and disaster recovery
+
+### Setup API (#17)
+
+`services.setup` owns every player/setup write transaction, including duplicate-name
+checks and the full match creation. The API validates requests and calls the service;
+repositories still never open transactions. Match lists use a service-owned read
+transaction so their count and page share one snapshot.
+
+Player create and patch take `{"display_name": "Ana"}`; patch edits the name and
+requires it. Names are trimmed and must be nonblank. Create returns 201; patch and
+archive return the player with 200. Archive is idempotent and keeps historical
+members visible. Colour and scoreboard short name are deferred to #22.
+
+Match create takes `{"config": {...}, "teams": [{"player_ids": [1], "name": null},
+{"player_ids": [2]}]}` and returns full detail with 201. `GameConfig` is nested in
+the request, so FastAPI rejects invalid configuration before endpoint execution.
+Its field validators preserve locations such as `body.config.out_rule`, including
+missing game-specific fields and odd `best_of`. API team validation requires two
+teams, nonempty membership, distinct positive player IDs, and a starting-team index
+within range. The repository retains one-team support. Unknown players produce 404;
+archived players produce the existing `invalid_match` domain 422.
+
+`GET /api/matches` returns `{items, total, limit, offset}`. `limit` defaults to 50
+and accepts 1–100; `offset` defaults to 0 and must be nonnegative. `status` accepts
+`in_progress`, `complete`, or `abandoned`; omission includes all three. Matches sort
+by `created_at DESC, id DESC`. Only page members have their teams loaded; offset
+pagination can shift if matches are created between page requests.
+
+Both list items and detail include config, status, timestamps, winner, teams and
+members, and `current_leg_id` (the latest leg, including the final leg on a finished
+match). The resume card filters `in_progress` and uses this leg ID to navigate.
+Live scores and turn position are loaded from #18 after navigation, not calculated
+by this list endpoint. Every success response has an OpenAPI response model.
+
+Abandonment sets `abandoned_at` once and leaves `completed_at` and winner null.
+Repeating it returns the same result; abandoning a completed match returns 409
+with reason `match_complete`. Existing play and undo refuse further mutations of
+an abandoned match with `MatchAbandonedError`; a retry of an already recorded dart
+remains a read-only idempotent response. No darts, visits, legs, or caches are deleted.

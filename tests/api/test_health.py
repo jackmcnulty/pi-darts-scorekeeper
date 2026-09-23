@@ -40,7 +40,7 @@ def test_a_healthy_box_reports_its_schema_and_build(client: TestClient) -> None:
     assert response.status_code == 200
     report = response.json()
     assert report["status"] == "healthy"
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
     assert report["git_sha"] == "cafe1234"
     assert report["version"] == __version__
     assert report["auto_restored"] is False
@@ -65,7 +65,7 @@ def test_a_degraded_boot_is_a_503(tmp_path: Path, database: Path) -> None:
     assert report["auto_restored"] is False
     # The database was still made serviceable, so the schema is readable even
     # while the box reports itself unfit.
-    assert report["schema_version"] == 1
+    assert report["schema_version"] == 2
 
 
 def test_an_automatic_restore_is_reported_but_still_serves(tmp_path: Path, database: Path) -> None:
@@ -145,7 +145,7 @@ def test_the_probe_costs_the_card_no_writes(tmp_path: Path, client: TestClient) 
 
 
 def test_the_probe_reads_the_schema_version(database: Path) -> None:
-    assert probe(database) == (1, None)
+    assert probe(database) == (2, None)
 
 
 def test_the_probe_describes_a_failure_rather_than_raising(tmp_path: Path) -> None:

@@ -1,11 +1,11 @@
 """Per-request wiring: the settings, the boot status, and a connection.
 
 **One connection per request**, opened in a dependency and closed when the
-request ends. `connect()` leaves `check_same_thread` at its default and FastAPI
-runs a `def` endpoint in a worker thread, so a connection opened once at
-startup and shared would be used from a thread other than the one that created
-it -- which SQLite refuses outright. Opening inside the request keeps each
-connection on the thread that uses it, with no lock and no shared state.
+request ends. FastAPI may schedule dependency entry, endpoint execution and
+dependency cleanup on different worker threads, so API connections explicitly
+disable the thread-affinity check. The connection belongs exclusively to one
+request and those stages run sequentially; no connection is shared between
+requests or used by parallel work inside a request.
 Opening a local file is five PRAGMAs and no network, and this box serves one
 household, so the cost is not worth engineering around.
 
@@ -37,7 +37,7 @@ def get_recovery(request: Request) -> RecoveryStatus | None:
 
 def get_connection(request: Request) -> Iterator[sqlite3.Connection]:
     """A connection for the life of one request, closed however the request ends."""
-    with connection(get_settings(request).db_path) as conn:
+    with connection(get_settings(request).db_path, check_same_thread=False) as conn:
         yield conn
 
 

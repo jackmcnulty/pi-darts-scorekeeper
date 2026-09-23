@@ -24,9 +24,8 @@ Two fields have no promoted column and live in `config_json` alone:
 
 import json
 from enum import StrEnum
-from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from darts.engine.cricket import Variant
 from darts.engine.rotation import StartRule
@@ -58,7 +57,7 @@ class GameConfig(BaseModel):
     asked for.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, validate_default=True)
 
     game_type: GameType
     #: Legs needed to win is best_of // 2 + 1, which requires an odd best_of.
@@ -72,26 +71,28 @@ class GameConfig(BaseModel):
     #: The team `start_rule` starts from, where the rule consults one.
     fixed_team: int = Field(default=0, ge=0)
 
-    @model_validator(mode="after")
-    def _check_odd_best_of(self) -> Self:
-        if self.best_of % 2 == 0:
-            raise ValueError(f"best_of must be odd; got {self.best_of!r}")
-        return self
+    @field_validator("best_of")
+    @classmethod
+    def _check_odd_best_of(cls, value: int) -> int:
+        if value % 2 == 0:
+            raise ValueError(f"best_of must be odd; got {value!r}")
+        return value
 
-    @model_validator(mode="after")
-    def _check_fields_match_game_type(self) -> Self:
-        """Each game type requires its own fields and forbids the other's."""
-        if self.game_type is GameType.X01:
-            required: tuple[str, ...] = ("start_score", "in_rule", "out_rule")
-            forbidden: tuple[str, ...] = ("variant",)
-        else:
-            required = ("variant",)
-            forbidden = ("start_score", "in_rule", "out_rule")
-        if missing := [name for name in required if getattr(self, name) is None]:
-            raise ValueError(f"{self.game_type} requires {', '.join(missing)}")
-        if present := [name for name in forbidden if getattr(self, name) is not None]:
-            raise ValueError(f"{self.game_type} does not take {', '.join(present)}")
-        return self
+    @field_validator("variant", "start_score", "in_rule", "out_rule")
+    @classmethod
+    def _check_fields_match_game_type(
+        cls, value: Variant | Rule | int | None, info: ValidationInfo
+    ) -> Variant | Rule | int | None:
+        """Validate at the field so request errors preserve its exact location."""
+        game_type = info.data.get("game_type")
+        if game_type is None:
+            return value
+        required = (info.field_name == "variant") == (game_type is GameType.CRICKET)
+        if required and value is None:
+            raise ValueError(f"{game_type} requires {info.field_name}")
+        if not required and value is not None:
+            raise ValueError(f"{game_type} does not take {info.field_name}")
+        return value
 
     @property
     def columns(self) -> dict[str, object]:

@@ -26,6 +26,7 @@ be solo; deriving it is what makes that unrepresentable.
 import sqlite3
 from collections.abc import Sequence
 from dataclasses import dataclass
+from enum import StrEnum
 
 from darts.engine.rotation import starting_team
 from darts.repo.config import GameConfig
@@ -82,6 +83,12 @@ class Team:
     members: tuple[TeamMember, ...]
 
 
+class MatchStatus(StrEnum):
+    IN_PROGRESS = "in_progress"
+    COMPLETE = "complete"
+    ABANDONED = "abandoned"
+
+
 @dataclass(frozen=True, slots=True)
 class Match:
     """A match and its teams.
@@ -97,6 +104,16 @@ class Match:
     completed_at: str | None
     winner_team_id: int | None
     teams: tuple[Team, ...]
+    abandoned_at: str | None
+    current_leg_id: int | None
+
+    @property
+    def status(self) -> MatchStatus:
+        if self.abandoned_at is not None:
+            return MatchStatus.ABANDONED
+        if self.completed_at is not None:
+            return MatchStatus.COMPLETE
+        return MatchStatus.IN_PROGRESS
 
 
 _TEAM_QUERY = """
@@ -237,7 +254,9 @@ def get_match(conn: sqlite3.Connection, match_id: int) -> Match:
     names active ones, and flags them so the caller can say so.
     """
     row = conn.execute(
-        "SELECT id, config_json, created_at, completed_at, winner_team_id "
+        "SELECT id, config_json, created_at, completed_at, winner_team_id, abandoned_at, "
+        "(SELECT id FROM legs WHERE match_id = matches.id ORDER BY leg_index DESC LIMIT 1) "
+        "AS current_leg_id "
         "FROM matches WHERE id = ?",
         (match_id,),
     ).fetchone()
@@ -250,4 +269,45 @@ def get_match(conn: sqlite3.Connection, match_id: int) -> Match:
         completed_at=row["completed_at"],
         winner_team_id=row["winner_team_id"],
         teams=_teams_of(conn, match_id),
+        abandoned_at=row["abandoned_at"],
+        current_leg_id=row["current_leg_id"],
     )
+
+
+_STATUS_WHERE = {
+    MatchStatus.IN_PROGRESS: "abandoned_at IS NULL AND completed_at IS NULL",
+    MatchStatus.COMPLETE: "completed_at IS NOT NULL",
+    MatchStatus.ABANDONED: "abandoned_at IS NOT NULL",
+}
+
+
+def list_matches(
+    conn: sqlite3.Connection,
+    *,
+    status: MatchStatus | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> tuple[list[Match], int]:
+    """A bounded page, newest first with id breaking timestamp ties.
+
+    The service owns the read transaction so count and items share a snapshot.
+    Teams are loaded only for matches in this page.
+    """
+    where = "" if status is None else f" WHERE {_STATUS_WHERE[status]}"
+    total = int(conn.execute(f"SELECT count(*) FROM matches{where}").fetchone()[0])
+    ids = conn.execute(
+        f"SELECT id FROM matches{where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
+        (limit, offset),
+    ).fetchall()
+    return [get_match(conn, row["id"]) for row in ids], total
+
+
+def abandon_match(conn: sqlite3.Connection, match_id: int) -> None:
+    """Mark abandonment once; the service checks eligibility in its transaction."""
+    cursor = conn.execute(
+        "UPDATE matches SET abandoned_at = COALESCE(abandoned_at, "
+        "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) WHERE id = ?",
+        (match_id,),
+    )
+    if cursor.rowcount == 0:
+        raise NotFoundError(f"no match with id {match_id}")
