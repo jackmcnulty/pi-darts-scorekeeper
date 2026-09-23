@@ -49,6 +49,7 @@ def test_the_families_are_separate_files() -> None:
     assert files == [
         "checkout.sql",
         "cricket.sql",
+        "export.sql",
         "leaderboard.sql",
         "match.sql",
         "results.sql",

@@ -214,8 +214,12 @@ class LeaderboardResponse(BaseModel):
     rows: list[LeaderboardRowResponse]
 
 
-def _echo(applied: Filter) -> FilterResponse:
-    """The filter as applied, with `since` in the text form the queries compared."""
+def echo_filter(applied: Filter) -> FilterResponse:
+    """The filter as applied, with `since` in the text form the queries compared.
+
+    Public because #20's exports echo the same four fields the same way; a
+    second spelling of this would be a second chance to disagree.
+    """
     return FilterResponse(
         game_type=applied.game_type,
         variant=applied.variant,
@@ -231,7 +235,7 @@ def player_stats(
     """One player. A player who has never thrown gets zeroes and nulls, not a 404."""
     stats = service.player_stats(conn, player_id, applied.to_stats_filter())
     return PlayerReportResponse(
-        filter=_echo(applied), player=PlayerStatsResponse.model_validate(stats)
+        filter=echo_filter(applied), player=PlayerStatsResponse.model_validate(stats)
     )
 
 
@@ -245,7 +249,7 @@ def leaderboard(conn: ConnectionDep, applied: LeaderboardFilterDep) -> Leaderboa
     """
     ranking = service.leaderboard(conn, applied.to_stats_filter(), applied.min_darts)
     return LeaderboardResponse(
-        filter=_echo(applied),
+        filter=echo_filter(applied),
         min_darts=ranking.min_darts,
         ranked_by="three_dart_average",
         rows=[LeaderboardRowResponse.model_validate(row) for row in ranking.rows],
@@ -265,5 +269,5 @@ def match_stats(match_id: MatchId, conn: ConnectionDep, applied: FilterDep) -> M
         raise HTTPException(422, "match_id must name the match in the path, or be omitted")
     stats = service.match_stats(conn, match_id, applied.to_stats_filter())
     return MatchReportResponse(
-        filter=_echo(applied), match=MatchStatsResponse.model_validate(stats)
+        filter=echo_filter(applied), match=MatchStatsResponse.model_validate(stats)
     )

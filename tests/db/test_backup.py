@@ -12,10 +12,9 @@ from typing import cast
 import pytest
 from dbfixtures import add_visit, dump, scaffold
 
+from darts.db.artifact import ArtifactError, collapse_wal
 from darts.db.backup import (
     Backup,
-    BackupError,
-    _collapse_wal,
     create,
     default_backup_dir,
     discover,
@@ -134,9 +133,9 @@ def test_backup_taken_during_active_writes_is_consistent(tmp_path: Path) -> None
 def test_a_failed_backup_publishes_nothing_and_leaves_no_temporary(
     played: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("darts.db.backup.verify_file", lambda path: "injected damage")
+    monkeypatch.setattr("darts.db.artifact.verify_file", lambda path: "injected damage")
 
-    with pytest.raises(BackupError, match="failed its integrity check"):
+    with pytest.raises(ArtifactError, match="failed its integrity check"):
         create(played)
 
     directory = default_backup_dir(played)
@@ -158,8 +157,8 @@ class _Row:
 
 def test_collapsing_the_wal_refuses_to_publish_a_split_backup() -> None:
     """Publishing while a WAL still holds pages would lose them silently."""
-    with pytest.raises(BackupError, match="journal_mode=wal"):
-        _collapse_wal(cast(sqlite3.Connection, _StubbornConnection()))
+    with pytest.raises(ArtifactError, match="journal_mode=wal"):
+        collapse_wal(cast(sqlite3.Connection, _StubbornConnection()))
 
 
 def test_a_locked_copy_target_raises_and_leaves_no_temporary(
@@ -170,7 +169,7 @@ def test_a_locked_copy_target_raises_and_leaves_no_temporary(
     def explode(conn: sqlite3.Connection) -> None:
         raise sqlite3.OperationalError("database is locked")
 
-    monkeypatch.setattr("darts.db.backup._collapse_wal", explode)
+    monkeypatch.setattr("darts.db.artifact.collapse_wal", explode)
     directory = played.parent / "backups"
 
     with pytest.raises(sqlite3.OperationalError, match="locked"):
@@ -314,7 +313,7 @@ def test_a_restore_that_cannot_publish_leaves_no_temporary_behind(
             raise OSError("no space left on device")
         genuine(str(source), str(target))
 
-    monkeypatch.setattr("darts.db.backup.os.replace", fail_only_when_publishing)
+    monkeypatch.setattr("darts.db.artifact.os.replace", fail_only_when_publishing)
 
     with pytest.raises(OSError, match="no space left"):
         restore(played, result.backup.path)
@@ -331,7 +330,7 @@ def test_restore_refuses_a_damaged_backup(played: Path) -> None:
     data[4096 * 2 : 4096 * 6] = b"\xde" * (4096 * 4)
     damaged.write_bytes(bytes(data))
 
-    with pytest.raises(BackupError, match="refusing to restore a damaged backup"):
+    with pytest.raises(ArtifactError, match="refusing to restore a damaged backup"):
         restore(played, damaged)
     assert dump(played)["visits"]
 
@@ -382,7 +381,7 @@ def test_pruning_runs_by_default_after_each_backup(played: Path) -> None:
 def test_backup_of_a_missing_database_fails_without_creating_one(tmp_path: Path) -> None:
     """A mistyped path must not publish an empty backup that retention then trusts."""
     absent = tmp_path / "nested" / "darts.db"
-    with pytest.raises(BackupError, match="no database to back up"):
+    with pytest.raises(ArtifactError, match="no database to back up"):
         create(absent)
     assert not absent.exists()
     assert not absent.parent.exists()

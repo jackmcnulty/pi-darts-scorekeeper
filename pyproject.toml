@@ -23,6 +23,7 @@ darts-gen-checkouts = "darts.tools.gen_checkouts:main"
 darts-migrate = "darts.tools.migrate:main"
 darts-openapi = "darts.tools.openapi:main"
 darts-restore = "darts.tools.restore:main"
+darts-snapshot = "darts.tools.snapshot:main"
 darts-verify = "darts.tools.verify:main"
 
 [dependency-groups]

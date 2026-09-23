@@ -398,6 +398,124 @@ file is still valid SQL that runs unscoped in a shell.
 the rows underneath; aggregating `v_darts` per visit gives the same answers and
 keeps the index seek.
 
+## The published CSV exports
+
+`GET /api/export/matches.csv` and `GET /api/export/darts.csv` (#20) have **stable
+headers**. Column names, order and count are a contract: a spreadsheet built on
+column 18 keeps reading column 18. They are defined by `DARTS_HEADER` and
+`MATCHES_HEADER` in `backend/darts/services/export.py`, projected by
+`backend/darts/stats/sql/export.sql`, and pinned column by column in
+`tests/services/test_export_csv.py`.
+
+Both files share these conventions:
+
+| Convention | What it means |
+| --- | --- |
+| Encoding | UTF-8, served as `text/csv; charset=utf-8`. A spreadsheet left to guess guesses wrong exactly once. |
+| Line ending | CRLF, per RFC 4180, which is also `csv`'s default. |
+| Quoting | Whatever Python's `csv` writer does; nothing is formatted by hand. |
+| Absent values | An empty cell. Never `0`, `null`, `None` or `NA`. |
+| Booleans | The `0`/`1` the schema stores. |
+| Floats | **None.** Every column is an integer, a timestamp string or text, so no export can drift between platforms on a repr. |
+| Ordering | Deterministic, so two exports of the same data diff as identical. |
+| Filters | `?game_type=`, `?variant=`, `?since=`, `?match_id=` — #19's model, unchanged. |
+| Empty result | Still a valid CSV: the header line, and no rows. |
+
+### One row per dart: darts.csv
+
+Ordered by `match_id`, `leg_index`, `seq_in_leg`. Busted and uncounted darts are
+present — they were thrown, and `counted` and `caused_bust` say what became of
+them. Undone darts are absent, because #15 deleted the row. Cricket point events
+are one row per recipient and would multiply rows, so they are not here.
+
+| # | Column | Notes |
+| --- | --- | --- |
+| 1 | `match_id` | |
+| 2 | `match_created_at` | |
+| 3 | `game_type` | `x01` or `cricket` |
+| 4 | `variant` | Empty for x01 |
+| 5 | `leg_id` | |
+| 6 | `leg_index` | Zero-based |
+| 7 | `team_id` | |
+| 8 | `team_index` | Zero-based |
+| 9 | `team_name` | Empty for a solo team, which #17 does not name |
+| 10 | `player_id` | |
+| 11 | `player_name` | |
+| 12 | `visit_id` | |
+| 13 | `visit_index` | Within the leg |
+| 14 | `team_visit_index` | Within the leg, for this team |
+| 15 | `seq_in_leg` | Throw order within the leg |
+| 16 | `dart_index` | Position within the visit, 0–2 |
+| 17 | `dart_id` | |
+| 18 | `label` | `MISS`, `20`, `D16`, `T20`, `25`, `BULL` |
+| 19 | `segment` | 0, 1–20, or 25 |
+| 20 | `multiplier` | 0–3 |
+| 21 | `score` | `segment × multiplier`; the x01 score only when `counted` is 1 |
+| 22 | `counted` | |
+| 23 | `caused_bust` | |
+| 24 | `was_checkout_attempt` | |
+| 25 | `thrown_at` | |
+| 26 | `visit_score_before` | |
+| 27 | `visit_score_after` | |
+| 28 | `visit_is_bust` | |
+| 29 | `cricket_target` | Empty for x01 and for a cricket dart that hit no target |
+| 30 | `cricket_counted_marks` | |
+| 31 | `cricket_surplus_marks` | |
+| 32 | `cricket_wasted` | |
+
+**`label` is the one column no view supplies.** It comes from
+`darts.engine.throws.Throw.label`, the only thing in the codebase that tells the
+inner bull (`BULL`, segment 25 doubled) from the doubles ring (`D20`).
+`Throw.is_double` is True for both, so an export recording only that flag would
+have flattened them together unrecoverably — see the comment on #20. The file
+states the distinction three ways over: `label`, `segment` (25 vs 1–20) and
+`score` (50 vs 2–40) each recover it alone, and
+`tests/services/test_export_csv.py` asserts every exported label round-trips
+back through `Throw.parse` to the throw it came from.
+
+### One row per match: matches.csv
+
+Ordered by `match_id`.
+
+| # | Column | Notes |
+| --- | --- | --- |
+| 1 | `match_id` | |
+| 2 | `status` | `in_progress`, `complete` or `abandoned` |
+| 3 | `created_at` | |
+| 4 | `completed_at` | Empty unless complete |
+| 5 | `abandoned_at` | Empty unless abandoned |
+| 6 | `game_type` | |
+| 7 | `variant` | Empty for x01 |
+| 8 | `start_score` | Empty for cricket |
+| 9 | `in_rule` | Empty for cricket |
+| 10 | `out_rule` | Empty for cricket |
+| 11 | `best_of` | |
+| 12 | `legs_played` | Legs that exist |
+| 13 | `legs_completed` | Legs with a `completed_at` |
+| 14 | `darts_thrown` | Agrees with the row count of `darts.csv?match_id=` |
+| 15 | `winner_team_id` | Empty unless complete |
+| 16 | `winner_team_name` | |
+| 17 | `teams` | `Reds vs Blues` |
+| 18 | `players` | `Ana+Cal vs Ben+Dee`, in team and member order |
+
+`teams` and `players` are **for a human reading a spreadsheet and are not a
+parseable encoding**: #17 only strips a display name, so a player may
+legitimately be called `A+B`. A team with no name — which is every solo team — is
+labelled after its members, so a singles match reads `Ana vs Ben` rather than
+leaving two empty cells. The ids are the unambiguous form, and `darts.csv` is the
+lossless grain.
+
+### Why the export queries live under stats/sql
+
+`export.sql` sits in `backend/darts/stats/sql/` with #19's statistics queries
+even though an export is not a statistic. It buys two things worth more than the
+folder's name: `tests/db/test_view_bypass.py` scans that directory, so an export
+can never quietly start reading `darts` or `visits` instead of the views; and the
+exports get #19's `-- scope:` composition, so they accept the same four filters
+from the same closed set of predicates rather than a second string-building
+scheme. `tests/stats/test_query_plans.py` holds them to the same query-plan and
+timing criteria as everything else in the directory.
+
 ## Fixture data
 
 `tests/fixtures/seed.py` builds the deterministic dataset #19's golden values are

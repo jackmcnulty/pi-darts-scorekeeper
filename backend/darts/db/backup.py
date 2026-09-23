@@ -1,10 +1,13 @@
-"""Consistent backups, atomic publication, bucketed retention, and restore."""
+"""Consistent backups, atomic publication, bucketed retention, and restore.
 
-import json
-import os
+The copying, publishing and describing are `darts.db.artifact`'s, shared with
+the snapshot service #20 added. What is this module's own is the *history*: a
+timestamped name, a manifest beside each one, retention over UTC buckets, and
+restoring one over the live database.
+"""
+
 import re
 import sqlite3
-import tempfile
 from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass, field
@@ -12,23 +15,25 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from darts.db.connection import connection
-from darts.db.durability import (
-    SIDECARS,
-    quarantine,
-    read_only_uri,
-    timestamp,
-    verify_file,
+from darts.db.artifact import (
+    ArtifactError,
+    copy_into_temp,
+    describe,
+    discard,
+    publish,
+    write_json,
 )
+from darts.db.connection import connection
+from darts.db.durability import quarantine, read_only_uri, timestamp, verify_file
 
 DEFAULT_HOURLY = 24
 DEFAULT_DAILY = 30
 
+#: Temporary copies are written in the backup directory itself, so they need a
+#: prefix `discover` will not mistake for a published backup.
+_TEMP_PREFIX = ".darts-backup-"
+
 _SUFFIX = re.compile(r"\A(\d{8}T\d{6}Z)(?:-(\d+))?\.db\Z")
-
-
-class BackupError(ValueError):
-    """A backup could not be taken, or could not safely be restored."""
 
 
 @dataclass(frozen=True, order=True)
@@ -103,83 +108,12 @@ def newest_valid(database: Path, *, backup_dir: Path | None = None) -> Backup | 
     return None
 
 
-def _discard(temporary: Path) -> None:
-    """Remove an unpublished temporary copy and anything SQLite left beside it."""
-    for suffix in ("", *SIDECARS):
-        temporary.with_name(temporary.name + suffix).unlink(missing_ok=True)
-
-
-def _collapse_wal(conn: sqlite3.Connection) -> None:
-    """Leave the copy as one self-contained file.
-
-    A WAL sidecar beside a published backup would hold committed pages that
-    os.replace does not move, so the backup would silently lose them.
-    """
-    mode = conn.execute("PRAGMA journal_mode = DELETE").fetchone()[0]
-    if mode != "delete":
-        raise BackupError(f"could not collapse the backup WAL (journal_mode={mode})")
-
-
-def _copy_into_temp(source: sqlite3.Connection, directory: Path) -> Path:
-    """Copy a database through sqlite3's backup API into a fresh temporary file.
-
-    The backup API copies pages inside a read transaction, so a snapshot taken
-    while a game is in progress is a point-in-time image. `cp` would capture a
-    torn file. The temporary lives in the destination directory so publishing
-    it is a same-filesystem rename.
-    """
-    handle, name = tempfile.mkstemp(dir=directory, prefix=".darts-backup-", suffix=".db")
-    os.close(handle)
-    temporary = Path(name)
-    try:
-        with closing(sqlite3.connect(temporary, isolation_level=None)) as copy:
-            source.backup(copy)
-            _collapse_wal(copy)
-    except BaseException:
-        _discard(temporary)
-        raise
-    return temporary
-
-
-def _describe(snapshot: Path, database: Path, target: Backup) -> dict[str, Any]:
-    """Build the manifest from the finished copy, not from the live database.
-
-    The manifest has to describe the artifact an operator will later restore,
-    which is why the counts are read back out of it.
-    """
-    problem = verify_file(snapshot)
-    if problem is not None:
-        raise BackupError(f"the snapshot failed its integrity check: {problem}")
-    with closing(sqlite3.connect(read_only_uri(snapshot), uri=True)) as conn:
-        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
-        names = [
-            str(row[0])
-            for row in conn.execute(
-                "SELECT name FROM sqlite_schema "
-                "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-            )
-        ]
-        # Table names come from the database's own schema, never from a caller.
-        counts = {
-            name: int(conn.execute(f'SELECT count(*) FROM "{name}"').fetchone()[0])
-            for name in names
-        }
+def _manifest(temporary: Path, database: Path, target: Backup) -> dict[str, Any]:
+    """The shared description of the finished copy, under this backup's own name."""
     return {
         "backup": target.path.name,
-        "source": str(database),
-        "created_at": target.stamp,
-        "schema_version": version,
-        "size_bytes": snapshot.stat().st_size,
-        "row_counts": counts,
+        **describe(temporary, source=database, created_at=target.stamp),
     }
-
-
-def _write_json(path: Path, payload: dict[str, Any]) -> None:
-    handle, name = tempfile.mkstemp(dir=path.parent, prefix=".darts-manifest-", suffix=".json")
-    with os.fdopen(handle, "w", encoding="utf-8") as stream:
-        json.dump(payload, stream, indent=2, sort_keys=True)
-        stream.write("\n")
-    os.replace(name, path)
 
 
 def _unused_backup(directory: Path, stem: str, stamp: str) -> Backup:
@@ -211,19 +145,19 @@ def create(
     if not database.is_file():
         # sqlite3 would happily create one, and a mistyped path would then
         # publish an empty "backup" and let retention prune the real ones.
-        raise BackupError(f"no database to back up at {database}")
+        raise ArtifactError(f"no database to back up at {database}")
     directory = backup_dir if backup_dir is not None else default_backup_dir(database)
     directory.mkdir(parents=True, exist_ok=True)
     target = _unused_backup(directory, database.stem, timestamp(now))
     with connection(database) as source:
-        temporary = _copy_into_temp(source, directory)
+        temporary = copy_into_temp(source, directory, prefix=_TEMP_PREFIX)
     try:
-        manifest = _describe(temporary, database, target)
-        os.replace(temporary, target.path)
+        manifest = _manifest(temporary, database, target)
     except BaseException:
-        _discard(temporary)
+        discard(temporary)
         raise
-    _write_json(target.manifest_path, manifest)
+    publish(temporary, target.path)
+    write_json(target.manifest_path, manifest)
     pruned = prune(directory, database.stem, hourly=hourly, daily=daily) if prune_old else ()
     return BackupResult(target, manifest, pruned)
 
@@ -291,14 +225,10 @@ def restore(database: Path, source: Path, *, now: datetime | None = None) -> Pat
     """
     problem = verify_file(source)
     if problem is not None:
-        raise BackupError(f"refusing to restore a damaged backup {source}: {problem}")
+        raise ArtifactError(f"refusing to restore a damaged backup {source}: {problem}")
     database.parent.mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(read_only_uri(source), uri=True)) as origin:
-        temporary = _copy_into_temp(origin, database.parent)
+        temporary = copy_into_temp(origin, database.parent, prefix=_TEMP_PREFIX)
     replaced = quarantine(database, label="replaced", now=now) if database.exists() else None
-    try:
-        os.replace(temporary, database)
-    except BaseException:
-        _discard(temporary)
-        raise
+    publish(temporary, database)
     return replaced

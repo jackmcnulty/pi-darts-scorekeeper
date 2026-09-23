@@ -404,3 +404,90 @@ is on 6.0. It only uses the compiler API to build and print an AST, so
 than resolving a second copy. Generated output is run through the repo's own
 Prettier config, so it passes `npm run lint` like every other file instead of
 being exempted from it.
+
+### Export API and DB snapshot generator (#20)
+
+Getting data out, over HTTP and as a file for desktop tools.
+
+| Route | Returns |
+| --- | --- |
+| `GET /api/export/matches.csv` | One CSV row per match |
+| `GET /api/export/darts.csv` | One CSV row per recorded dart |
+| `GET /api/export/stats.json` | `StatsExportResponse` — every player plus the leaderboard |
+| `GET /api/export/db` | A fresh point-in-time copy of the database |
+| `POST /api/admin/snapshot` | `SnapshotResponse` — the published manifest |
+| `POST /api/admin/rebuild-caches` | `RebuildResponse` — legs visited and changed |
+
+All three exports take #19's `?game_type=&variant=&since=&match_id=` filter,
+reusing `api.stats.Filter` unchanged; `stats.json` adds `?min_darts=`. The two
+CSV headers are a published contract and are documented, column by column, in
+[data-model.md](data-model.md#the-published-csv-exports).
+
+Nothing here is authenticated, including `/api/admin`. That is the same trust
+model as `POST /api/matches`: one household, one LAN, behind one router. Both
+admin actions are synchronous and idempotent, so a double-tap or a retry is
+harmless. Anyone exposing this box beyond the LAN has to revisit that decision
+for the whole app, not for these two routes.
+
+#### Copying, publishing and describing a database file
+
+`darts.db.artifact` holds what a backup and a snapshot both need, extracted from
+#12 rather than duplicated: copy through `Connection.backup()` (which reads
+pages inside a read transaction, so a copy taken mid-game is a point-in-time
+image where `cp` would tear), collapse the copy's WAL so the artifact is one
+self-contained file, write the temporary **in the destination directory** and
+publish it with `os.replace`, and build the manifest by reading the *finished*
+file back. `db.backup` adds the timestamped history and retention; `services.
+snapshot` adds one fixed filename.
+
+`services.snapshot` publishes `darts-latest.db` and `snapshot.json` into
+`DARTS_SNAPSHOT_DIR` (default: `snapshots/` beside the database). The name never
+changes, because the point is a path that can be written into #30's Samba
+config, a cron job or a bookmark and stay correct. `uv run darts-snapshot
+/path/to/darts.db` does the same thing from a shell.
+
+The database is renamed into place *before* its manifest, as backups do: an
+interrupted run can leave a snapshot whose `snapshot.json` still describes the
+previous one, but never a manifest promising a snapshot that is not there. The
+manifest carries `created_at`, so a reader can always tell which it has.
+
+#### Streaming, and why two routes open their own connection
+
+`GET /api/export/db` never serves the live database. That file is in WAL mode, so
+its most recent committed pages are in a `-wal` sidecar the client would not
+receive — the download would be missing the last few darts and no desktop tool
+could open it without the sidecar. Each request takes a fresh copy, streams it,
+and deletes it afterwards, including when the download is abandoned. It does not
+touch `darts-latest.db`: a download must never be able to leave the shared
+snapshot half-written.
+
+The CSV routes are the one place in the app that does **not** take
+`deps.ConnectionDep`. A `StreamingResponse` body is consumed *after* the
+endpoint returns, by which time the dependency's `with connection(...)` block
+has closed the connection and the cursor behind it. So those routes open a
+connection inside the generator that produces the body and close it when
+iteration ends — normally, on an error, or when Starlette closes the generator
+because the client disconnected. The connection is still used sequentially by
+exactly one request, which is the rule `deps` states;
+`check_same_thread=False` because Starlette drives a sync generator through the
+threadpool. `stats.json` is not a stream and uses `ConnectionDep` like
+everything else.
+
+Streaming is real at both ends. `services.export` yields one formatted line at a
+time off an open cursor, and the `ORDER BY` on `export_darts` is satisfied by
+walking `legs(match_id, leg_index)` then `darts(leg_id, seq_in_leg)` — indexes
+the schema already has — so SQLite needs no sorter either.
+`tests/stats/test_query_plans.py` asserts that over 50,000 darts, because a
+header reordering that quietly reintroduced a temporary B-tree would still be
+correct and would start buffering the whole table on a Pi.
+
+#### Rebuilding the caches
+
+`POST /api/admin/rebuild-caches` sweeps **every** leg, not only the unfinished
+ones, one transaction per leg. `leg_team_state` and `cricket_leg_state` exist
+only to resume an interrupted leg, so a finished leg correctly holds no rows and
+`services.play.rebuild_caches` deletes as readily as it writes. A sweep limited
+to unfinished legs could therefore never clean up a finished leg that wrongly
+held some, which is exactly the drift worth repairing. Over a correct database
+it changes nothing and reports `legs_changed: 0`. One transaction per leg rather
+than one for the sweep, because this can run while somebody is throwing.

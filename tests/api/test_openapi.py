@@ -25,6 +25,12 @@ def test_the_schema_is_served_under_api(client: TestClient) -> None:
         "/api/stats/players/{player_id}",
         "/api/stats/leaderboard",
         "/api/stats/matches/{match_id}",
+        "/api/export/matches.csv",
+        "/api/export/darts.csv",
+        "/api/export/stats.json",
+        "/api/export/db",
+        "/api/admin/snapshot",
+        "/api/admin/rebuild-caches",
     }
 
 
@@ -53,6 +59,86 @@ def test_every_stats_route_documents_an_explicit_response_model(client: TestClie
     for (path, method), model in stats.items():
         content = paths[path][method]["responses"]["200"]["content"]
         assert content["application/json"]["schema"]["$ref"].endswith(f"/{model}")
+
+
+def test_every_json_export_and_admin_route_documents_an_explicit_response_model(
+    client: TestClient,
+) -> None:
+    """#20's JSON routes are held to exactly the rule #18 and #19 set."""
+    paths = client.get("/api/openapi.json").json()["paths"]
+    routes = {
+        ("/api/export/stats.json", "get"): "StatsExportResponse",
+        ("/api/admin/snapshot", "post"): "SnapshotResponse",
+        ("/api/admin/rebuild-caches", "post"): "RebuildResponse",
+    }
+    for (path, method), model in routes.items():
+        content = paths[path][method]["responses"]["200"]["content"]
+        assert content["application/json"]["schema"]["$ref"].endswith(f"/{model}")
+
+
+def test_the_streaming_exports_document_a_media_type_instead_of_a_model(
+    client: TestClient,
+) -> None:
+    """A CSV body and a database file are not models, so the media type is the contract.
+
+    Deliberately not the `$ref` assertion above, which these could never satisfy:
+    a route that declared `application/json` here would be lying, and one left
+    undeclared would generate an untyped client. What is pinned is that each
+    declares exactly the one media type it actually serves.
+    """
+    paths = client.get("/api/openapi.json").json()["paths"]
+    streamed = {
+        "/api/export/matches.csv": "text/csv",
+        "/api/export/darts.csv": "text/csv",
+        "/api/export/db": "application/vnd.sqlite3",
+    }
+    for path, media_type in streamed.items():
+        content = paths[path]["get"]["responses"]["200"]["content"]
+        assert set(content) == {media_type}, path
+        assert "$ref" not in content[media_type]["schema"]
+        assert content[media_type]["schema"]["type"] == "string"
+    assert (
+        paths["/api/export/db"]["get"]["responses"]["200"]["content"]["application/vnd.sqlite3"][
+            "schema"
+        ]["format"]
+        == "binary"
+    )
+
+
+def test_the_export_routes_take_the_same_filters_the_stats_routes_do(
+    client: TestClient,
+) -> None:
+    """Same Pydantic query model, so the same four appear, expanded not collapsed.
+
+    If `Filter` ever stopped being a route's only query parameter, FastAPI would
+    silently turn it into one scalar called `applied` and every export would
+    422. This is what would catch that.
+    """
+    paths = client.get("/api/openapi.json").json()["paths"]
+    for path in ("/api/export/matches.csv", "/api/export/darts.csv", "/api/export/stats.json"):
+        query = {
+            parameter["name"]
+            for parameter in paths[path]["get"]["parameters"]
+            if parameter["in"] == "query"
+        }
+        assert {"game_type", "variant", "since", "match_id"} <= query, path
+        assert "applied" not in query, path
+
+    # `min_darts` is the statistics export's alone: neither CSV has a ranking.
+    assert "min_darts" in {
+        parameter["name"] for parameter in paths["/api/export/stats.json"]["get"]["parameters"]
+    }
+    for csv_path in ("/api/export/matches.csv", "/api/export/darts.csv"):
+        assert "min_darts" not in {
+            parameter["name"] for parameter in paths[csv_path]["get"]["parameters"]
+        }
+
+
+def test_the_admin_routes_are_post_only(client: TestClient) -> None:
+    """They are actions, not resources."""
+    paths = client.get("/api/openapi.json").json()["paths"]
+    assert set(paths["/api/admin/snapshot"]) == {"post"}
+    assert set(paths["/api/admin/rebuild-caches"]) == {"post"}
 
 
 def test_the_stats_filters_are_documented_as_query_parameters(client: TestClient) -> None:
