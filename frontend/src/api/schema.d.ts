@@ -237,6 +237,75 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/stats/leaderboard': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Leaderboard
+     * @description Everybody who has thrown at least `min_darts` x01 darts, best average first.
+     *
+     *     Archived players are left off, following #17's pickers: a leaderboard is a
+     *     thing you are currently on. They keep every other statistic, and their own
+     *     endpoint still answers.
+     */
+    get: operations['leaderboard_api_stats_leaderboard_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/stats/matches/{match_id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Match Stats
+     * @description One match, per player and per leg.
+     *
+     *     `?match_id=` is accepted here for uniformity with the other two endpoints,
+     *     but it may only name the match already in the path. Silently ignoring a
+     *     contradiction, or answering about the other match, are both worse than
+     *     saying so.
+     */
+    get: operations['match_stats_api_stats_matches__match_id__get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
+  '/api/stats/players/{player_id}': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Player Stats
+     * @description One player. A player who has never thrown gets zeroes and nulls, not a 404.
+     */
+    get: operations['player_stats_api_stats_players__player_id__get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/version': {
     parameters: {
       query?: never
@@ -258,6 +327,17 @@ export interface paths {
 export type webhooks = Record<string, never>
 export interface components {
   schemas: {
+    /** BandsResponse */
+    BandsResponse: {
+      /** Hundred Plus */
+      hundred_plus: number
+      /** One Eighties */
+      one_eighties: number
+      /** One Forty Plus */
+      one_forty_plus: number
+      /** Sixty Plus */
+      sixty_plus: number
+    }
     /**
      * CheckoutResponse
      * @description Finishes for whoever throws next, or why there are none.
@@ -277,6 +357,21 @@ export interface components {
       remaining: number | null
       /** Team Id */
       team_id: number | null
+    }
+    /** CricketResponse */
+    CricketResponse: {
+      /** Darts On Target */
+      darts_on_target: number
+      /** Darts Thrown */
+      darts_thrown: number
+      /** Marks */
+      marks: number
+      /** Marks Per Round */
+      marks_per_round: number | null
+      /** Targets */
+      targets: components['schemas']['TargetResponse'][]
+      /** Wasted Darts */
+      wasted_darts: number
     }
     /** DartResponse */
     DartResponse: {
@@ -317,6 +412,18 @@ export interface components {
       multiplier: number
       /** Segment */
       segment: number
+    }
+    /**
+     * FilterResponse
+     * @description What the request was narrowed to, echoed back so a client can label a chart.
+     */
+    FilterResponse: {
+      game_type: components['schemas']['GameType'] | null
+      /** Match Id */
+      match_id: number | null
+      /** Since */
+      since: string | null
+      variant: components['schemas']['Variant'] | null
     }
     /**
      * GameConfig
@@ -379,6 +486,59 @@ export interface components {
      * @enum {string}
      */
     HealthState: 'healthy' | 'restored' | 'degraded' | 'unavailable' | 'not_started'
+    /** LeaderboardResponse */
+    LeaderboardResponse: {
+      filter: components['schemas']['FilterResponse']
+      /** Min Darts */
+      min_darts: number
+      /**
+       * Ranked By
+       * @constant
+       */
+      ranked_by: 'three_dart_average'
+      /** Rows */
+      rows: components['schemas']['LeaderboardRowResponse'][]
+    }
+    /** LeaderboardRowResponse */
+    LeaderboardRowResponse: {
+      /** Best Checkout */
+      best_checkout: number | null
+      /** Checkout Attempts */
+      checkout_attempts: number
+      /** Checkout Percentage */
+      checkout_percentage: number | null
+      /** Checkouts Hit */
+      checkouts_hit: number
+      /** Darts Thrown */
+      darts_thrown: number
+      /** Display Name */
+      display_name: string
+      /** Highest Visit */
+      highest_visit: number | null
+      /** One Eighties */
+      one_eighties: number
+      /** Player Id */
+      player_id: number
+      /** Three Dart Average */
+      three_dart_average: number | null
+    }
+    /** LegLineResponse */
+    LegLineResponse: {
+      /** Darts Thrown */
+      darts_thrown: number
+      /** Leg Id */
+      leg_id: number
+      /** Leg Index */
+      leg_index: number
+      /** Marks Per Round */
+      marks_per_round: number | null
+      /** Player Id */
+      player_id: number
+      /** Three Dart Average */
+      three_dart_average: number | null
+      /** Won */
+      won: boolean
+    }
     /**
      * LegStateResponse
      * @description A leg, everything a board draws from it, and its hints.
@@ -415,6 +575,11 @@ export interface components {
       offset: number
       /** Total */
       total: number
+    }
+    /** MatchReportResponse */
+    MatchReportResponse: {
+      filter: components['schemas']['FilterResponse']
+      match: components['schemas']['MatchStatsResponse']
     }
     /** MatchResponse */
     MatchResponse: {
@@ -457,6 +622,17 @@ export interface components {
       /** Winner Team Id */
       winner_team_id: number | null
     }
+    /** MatchStatsResponse */
+    MatchStatsResponse: {
+      game_type: components['schemas']['GameType']
+      /** Legs */
+      legs: components['schemas']['LegLineResponse'][]
+      /** Match Id */
+      match_id: number
+      /** Players */
+      players: components['schemas']['PlayerStatsResponse'][]
+      variant: components['schemas']['Variant'] | null
+    }
     /**
      * MatchStatus
      * @enum {string}
@@ -486,6 +662,11 @@ export interface components {
      */
     NoHintsReason:
       'not_x01' | 'leg_complete' | 'match_abandoned' | 'no_thrower' | 'not_open' | 'not_checkable'
+    /** PlayerReportResponse */
+    PlayerReportResponse: {
+      filter: components['schemas']['FilterResponse']
+      player: components['schemas']['PlayerStatsResponse']
+    }
     /** PlayerResponse */
     PlayerResponse: {
       /** Created At */
@@ -496,6 +677,29 @@ export interface components {
       id: number
       /** Is Archived */
       is_archived: boolean
+    }
+    /** PlayerStatsResponse */
+    PlayerStatsResponse: {
+      cricket: components['schemas']['CricketResponse']
+      /** Darts Thrown */
+      darts_thrown: number
+      /** Display Name */
+      display_name: string
+      /** Is Archived */
+      is_archived: boolean
+      /** Legs Played */
+      legs_played: number
+      /** Legs Won */
+      legs_won: number
+      /** Matches Played */
+      matches_played: number
+      /** Matches Won */
+      matches_won: number
+      /** Player Id */
+      player_id: number
+      /** Segments */
+      segments: components['schemas']['SegmentResponse'][]
+      x01: components['schemas']['X01Response']
     }
     /** PlayerWrite */
     PlayerWrite: {
@@ -508,11 +712,31 @@ export interface components {
      * @enum {string}
      */
     Rule: 'straight' | 'double' | 'master'
+    /** SegmentResponse */
+    SegmentResponse: {
+      /** Darts */
+      darts: number
+      /** Multiplier */
+      multiplier: number
+      /** Segment */
+      segment: number
+    }
     /**
      * StartRule
      * @enum {string}
      */
     StartRule: 'alternate' | 'loser_starts' | 'winner_starts' | 'fixed'
+    /** TargetResponse */
+    TargetResponse: {
+      /** Hit Rate */
+      hit_rate: number | null
+      /** Hits */
+      hits: number
+      /** Marks */
+      marks: number
+      /** Target */
+      target: number
+    }
     /**
      * TeamLegResponse
      * @description One team's position. x01 fills `remaining`/`is_open`, cricket fills `marks`.
@@ -611,6 +835,34 @@ export interface components {
       visit_id: number
       /** Visit Index */
       visit_index: number
+    }
+    /** X01Response */
+    X01Response: {
+      /** Average Visit */
+      average_visit: number | null
+      bands: components['schemas']['BandsResponse']
+      /** Best Checkout */
+      best_checkout: number | null
+      /** Checkout Attempts */
+      checkout_attempts: number
+      /** Checkout Percentage */
+      checkout_percentage: number | null
+      /** Checkouts Hit */
+      checkouts_hit: number
+      /** Darts Thrown */
+      darts_thrown: number
+      /** First Nine Average */
+      first_nine_average: number | null
+      /** First Nine Darts */
+      first_nine_darts: number
+      /** Highest Visit */
+      highest_visit: number | null
+      /** Points Scored */
+      points_scored: number
+      /** Three Dart Average */
+      three_dart_average: number | null
+      /** Visits */
+      visits: number
     }
   }
   responses: never
@@ -1021,6 +1273,113 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['PlayerResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  leaderboard_api_stats_leaderboard_get: {
+    parameters: {
+      query?: {
+        game_type?: components['schemas']['GameType'] | null
+        variant?: components['schemas']['Variant'] | null
+        since?: string | null
+        match_id?: number | null
+        min_darts?: number
+      }
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['LeaderboardResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  match_stats_api_stats_matches__match_id__get: {
+    parameters: {
+      query?: {
+        game_type?: components['schemas']['GameType'] | null
+        variant?: components['schemas']['Variant'] | null
+        since?: string | null
+        match_id?: number | null
+      }
+      header?: never
+      path: {
+        match_id: number
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MatchReportResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['HTTPValidationError']
+        }
+      }
+    }
+  }
+  player_stats_api_stats_players__player_id__get: {
+    parameters: {
+      query?: {
+        game_type?: components['schemas']['GameType'] | null
+        variant?: components['schemas']['Variant'] | null
+        since?: string | null
+        match_id?: number | null
+      }
+      header?: never
+      path: {
+        player_id: number
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['PlayerReportResponse']
         }
       }
       /** @description Validation Error */

@@ -9,6 +9,7 @@ import pytest
 
 from darts.db.connection import connection
 from darts.db.migrate import MIGRATIONS, MigrationError, discover, migrate
+from darts.db.views import view_names
 from darts.tools.migrate import main
 
 
@@ -181,8 +182,12 @@ def test_concurrent_startups_serialize(tmp_path: Path) -> None:
 def test_cli_fresh_noop_and_failure(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path = tmp_path / "cli.db"
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 2; applied 2 migration(s); 2 view(s)\n"
+    # The view count comes from views.sql, which #19 grew; the point of this
+    # assertion is the migration count and the exit status, not that number.
+    with connection(path) as conn:
+        views = len(view_names(conn))
+    assert capsys.readouterr().out == f"schema version 2; applied 2 migration(s); {views} view(s)\n"
     assert main([str(path)]) == 0
-    assert capsys.readouterr().out == "schema version 2; applied 0 migration(s); 2 view(s)\n"
+    assert capsys.readouterr().out == f"schema version 2; applied 0 migration(s); {views} view(s)\n"
     assert main([str(tmp_path / "missing" / "cannot.db")]) == 1
     assert "migration failed" in capsys.readouterr().err

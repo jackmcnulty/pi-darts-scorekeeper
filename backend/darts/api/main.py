@@ -32,6 +32,7 @@ from darts.api.matches import router as matches_router
 from darts.api.play import router as play_router
 from darts.api.players import router as players_router
 from darts.api.static import mount_static
+from darts.api.stats import router as stats_router
 from darts.config import Settings
 from darts.db.connection import connection
 from darts.db.durability import checkpoint_truncate
@@ -118,6 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(players_router)
     app.include_router(matches_router)
     app.include_router(play_router)
+    app.include_router(stats_router)
     mount_static(app, resolved.static_dir)
     return app
 

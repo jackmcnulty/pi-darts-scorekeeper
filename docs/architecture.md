@@ -149,6 +149,7 @@ the environment, and tests pass their own so nothing depends on the machine.
 | `api/deps.py` | Per-request settings, boot status and connection. |
 | `api/errors.py` | The error envelope and every exception handler. |
 | `api/health.py` | `/api/healthz` and `/api/version`. |
+| `api/stats.py` | The three `/api/stats` reads and their response models. |
 | `api/static.py` | The built frontend, the SPA fallback, cache headers. |
 | `api/logging_conf.py` | Structured logging and the request-id middleware. |
 | `config.py` | Every path and port, from `DARTS_*`. |
@@ -336,6 +337,43 @@ darts have landed returns the newer state, which is the honest answer — nothin
 records historical responses or replays them. The same key describing a
 different dart, or aimed at a different leg, is a 409 with reason
 `idempotency_conflict`. Undo hard-deletes a dart, which frees its key again.
+
+### Statistics API (#19)
+
+Three reads, all taking `?game_type=&variant=&since=&match_id=`:
+
+| Route | Returns |
+| --- | --- |
+| `GET /api/stats/players/{id}` | `PlayerReportResponse` — lifetime, within the filter |
+| `GET /api/stats/leaderboard` | `LeaderboardResponse` — ranked, plus `?min_darts=` |
+| `GET /api/stats/matches/{id}` | `MatchReportResponse` — per player and per leg |
+
+The metric definitions and the reason the scope is composed rather than bound
+live in [data-model.md](data-model.md#statistics-queries); this is the wiring.
+
+`darts.stats` is a query layer beside `darts.repo`, not above it: `queries.py`
+loads and binds the packaged SQL, `report.py` assembles rows into frozen
+dataclasses, and neither opens a transaction. `services.stats` does, with a
+**deferred** read transaction — a report is several statements and they must see
+one database, but taking the write lock would make looking at a chart block a
+dart being recorded.
+
+**Identity is resolved through the repositories, not the statistics queries.** A
+player who does not exist is a `NotFoundError` and a 404; a player who exists and
+has never thrown is a well-formed 200 full of zeroes and nulls. A query returning
+no rows cannot tell those apart, and the ticket requires both answers.
+
+**Filters are parsed into a Pydantic query model**, so a bad `game_type` or an
+unparseable `since` is a field-level 422 during request parsing rather than a
+`ValueError` inside a handler, which would be a 500. `extra="forbid"` means
+`?gametype=x01` is refused instead of silently answered with unfiltered numbers.
+FastAPI only expands such a model when it is the route's *only* query parameter,
+which is why the leaderboard's `min_darts` is a field on the model rather than an
+argument beside it; `tests/api/test_openapi.py` pins that.
+
+`GET /api/stats/matches/{id}` accepts `?match_id=` for uniformity with the other
+two, but only if it names the match already in the path — a contradiction is a
+422 rather than a silently ignored parameter.
 
 #### Generated TypeScript client types
 
