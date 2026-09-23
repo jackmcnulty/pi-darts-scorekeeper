@@ -11,6 +11,9 @@ requires-python = ">=3.11,<3.12"
 dynamic = ["version"]
 dependencies = [
     "fastapi>=0.141.1",
+    # Direct: darts.repo.config validates GameConfig with it. FastAPI happens to
+    # pull it in too, but this layer must not depend on that staying true.
+    "pydantic>=2.11",
     "uvicorn[standard]>=0.53.0",
 ]
 
