@@ -265,3 +265,104 @@ Repeating it returns the same result; abandoning a completed match returns 409
 with reason `match_complete`. Existing play and undo refuse further mutations of
 an abandoned match with `MatchAbandonedError`; a retry of an already recorded dart
 remains a read-only idempotent response. No darts, visits, legs, or caches are deleted.
+
+### Play API and generated client types (#18)
+
+Four routes, all of which hand back the same complete state so the play screen
+never needs a follow-up read:
+
+| Route | Returns |
+| --- | --- |
+| `GET /api/matches/{id}/state` | `MatchStateResponse` — the fat read |
+| `POST /api/legs/{id}/darts` | `MatchStateResponse` — 200, not 201 |
+| `POST /api/legs/{id}/undo` | `MatchStateResponse` |
+| `GET /api/legs/{id}/checkout` | `CheckoutResponse` — hints alone, for debugging |
+
+Endpoints take `deps.ConnectionDep` and call `services.play`, which owns
+scoring, rotation, busts, undo, advancement and its own transactions. The API
+validates a payload and maps frozen dataclasses onto the wire; it decides no
+rule. `services.state` still imports no web framework.
+
+**The state read is addressed by match, the writes by leg.** `play.state` takes
+a *leg* id, so `GET /matches/{id}/state` resolves the match's latest leg —
+#17's `current_leg_id` — first. That is the leg in play for a live match, the
+deciding leg for a finished one, and wherever play stopped for an abandoned one.
+
+**`current_leg` and `active_leg` are different questions.** `current_leg` is the
+leg that was addressed, shown complete with its winner if the last dart won it.
+`active_leg` is the full state of the leg the next dart goes into, and is
+present only when that is a *different* leg — which is exactly the one response
+that reports a leg being won. It is null otherwise, including when it would
+merely repeat `current_leg`, and when the match is over. A client can therefore
+paint the finished scoreboard and start the next leg from a single response.
+
+**`current_visit` and `previous_visit` are disjoint and leg-scoped.**
+`current_visit` is the part-thrown visit and is null whenever the last visit
+finished — bust, checkout, or third dart. `previous_visit` is the last visit
+that *finished*, which is what the recap line reads. Neither reaches back across
+a leg boundary, so the first visit of a new leg recaps nothing. `LegState` on
+the service side carries the same split; there is no single "last visit".
+
+**An abandoned match reads, but offers nothing to do.** `play._project` still
+derives `active_leg_id` from unfinished legs, which is true of the rows: that
+leg exists and its darts are worth reading. It is not true of the game, and #17
+already refuses every dart and undo aimed at one. So the API reports `status`
+explicitly and then withholds everything actionable — no `active_leg_id`, no
+`active_leg`, no `next_thrower`, no hints and no named thrower on them. Scores,
+marks, visits and the tally all still read.
+
+**Checkout hints.** `services.hints.for_leg` is pure and wraps
+`engine.checkout.suggest`, which is a lookup into the committed table and never
+a search. Paths are serialised as throw labels — `["T20", "T20", "BULL"]`. An
+empty `paths` always carries a `reason`: `not_x01`, `match_abandoned`,
+`leg_complete`, `no_thrower`, `not_open` or `not_checkable`. `not_open` is the
+double-in and master-in case: the table is built from the out-rule alone, so a
+team that has not opened would be handed a path whose first darts do not score,
+and suggesting nothing is better than suggesting that. Under the usual
+straight-in a team is open from its first dart and this never fires.
+
+**Validation happens during request parsing, not in the endpoint.** `DartWrite`
+refuses an illegal segment, multiplier or combination as a field-level 422, so
+`Throw(segment, multiplier)` cannot raise inside a handler — a `ValueError`
+escaping there would be a 500. The legal set is derived from
+`engine.throws.ALL_THROWS`, which has 63 members: 62 counts the board's scoring
+segments and excludes the miss. `client_dart_id` is opaque non-blank text, not a
+UUID; the column is a globally unique TEXT and nothing needs more than that.
+
+**Idempotency is current-state, not stored responses.** A repeated
+`client_dart_id` inserts nothing and returns the state as it stands now, so an
+immediate retry is byte-identical to the first call. A retry sent after other
+darts have landed returns the newer state, which is the honest answer — nothing
+records historical responses or replays them. The same key describing a
+different dart, or aimed at a different leg, is a 409 with reason
+`idempotency_conflict`. Undo hard-deletes a dart, which frees its key again.
+
+#### Generated TypeScript client types
+
+`frontend/src/api/schema.d.ts` is generated from the schema the app actually
+serves and is committed. To regenerate it:
+
+```sh
+cd frontend && npm run gen:api
+```
+
+`uv run darts-openapi -o <file>` builds the real FastAPI app against a
+**throwaway database in a temporary directory** and fetches `/api/openapi.json`
+through the route rather than reading `app.openapi()` — routing order is
+load-bearing here, and asking the object would not notice a schema shadowed by
+the static mount. It requires an output path: `configure_logging` writes the
+application log to stdout, so a piped schema would arrive with boot lines in
+front of it. Output is sorted and indented so two dumps are the same bytes.
+
+`npm run gen:api:check` regenerates in memory and compares, failing on a stale
+*or missing* file. It never writes: a check that repaired what it was checking
+would pass on a branch that never committed the file, which is the one failure
+it exists to catch. CI runs it in its own `contract` job, because generation
+needs Python and Node together while the `frontend` job is Node-only.
+
+`openapi-typescript` still declares a peer of `typescript@^5.x` while this repo
+is on 6.0. It only uses the compiler API to build and print an AST, so
+`package.json` overrides that peer to the TypeScript already installed rather
+than resolving a second copy. Generated output is run through the repo's own
+Prettier config, so it passes `npm run lint` like every other file instead of
+being exempted from it.

@@ -85,6 +85,40 @@ jobs:
       - name: Build
         run: npm run build
 
+  # Generating the client types needs Python and Node together, which is why
+  # this is its own job rather than a step of `frontend`. It regenerates and
+  # compares; it never writes, so a branch that forgot to commit schema.d.ts
+  # fails here instead of quietly passing on a file CI made for itself.
+  contract:
+    name: contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Generated client types match the served OpenAPI schema
+        working-directory: frontend
+        run: npm run gen:api:check
+
   shell:
     name: shell
     runs-on: ubuntu-latest

@@ -18,7 +18,25 @@ def test_the_schema_is_served_under_api(client: TestClient) -> None:
         "/api/matches",
         "/api/matches/{match_id}",
         "/api/matches/{match_id}/abandon",
+        "/api/matches/{match_id}/state",
+        "/api/legs/{leg_id}/darts",
+        "/api/legs/{leg_id}/undo",
+        "/api/legs/{leg_id}/checkout",
     }
+
+
+def test_every_play_route_documents_an_explicit_response_model(client: TestClient) -> None:
+    """The TypeScript client is generated from this, so an undeclared body is an untyped one."""
+    paths = client.get("/api/openapi.json").json()["paths"]
+    play = {
+        ("/api/matches/{match_id}/state", "get"): "MatchStateResponse",
+        ("/api/legs/{leg_id}/darts", "post"): "MatchStateResponse",
+        ("/api/legs/{leg_id}/undo", "post"): "MatchStateResponse",
+        ("/api/legs/{leg_id}/checkout", "get"): "CheckoutResponse",
+    }
+    for (path, method), model in play.items():
+        content = paths[path][method]["responses"]["200"]["content"]
+        assert content["application/json"]["schema"]["$ref"].endswith(f"/{model}")
 
 
 def test_the_documented_responses_match_what_the_endpoints_return(client: TestClient) -> None:

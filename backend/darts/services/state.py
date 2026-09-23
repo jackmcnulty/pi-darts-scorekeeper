@@ -11,15 +11,17 @@ surface; they are an implementation detail of the replay and stop at the edge
 of `play`.
 
 There are no checkout suggestions here. `TeamLegState` carries `remaining`,
-`LegState` carries `darts_left` and `GameState.config` carries the out-rule,
-which is everything `engine.checkout.suggest` needs; wiring it up is #20's.
+`LegState` carries `darts_left` and `GameConfig` carries the out-rule, which is
+everything `engine.checkout.suggest` needs; #18 wires it up at the HTTP edge,
+where suppressing a hint nobody may act on is a presentation decision rather
+than a fact about the leg.
 """
 
 from collections.abc import Mapping
 from dataclasses import dataclass
 
 from darts.repo.config import GameConfig
-from darts.repo.matches import Team
+from darts.repo.matches import MatchStatus, Team
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +90,18 @@ class TeamLegState:
 
 @dataclass(frozen=True, slots=True)
 class LegState:
-    """A leg as it stands, derived from its darts rather than from its cache."""
+    """A leg as it stands, derived from its darts rather than from its cache.
+
+    The two visit fields are disjoint and answer different questions. A play
+    screen shows the dart slots of the visit being thrown *and* a recap of the
+    one before it, so one "latest visit" cannot serve both: for two thirds of a
+    visit the latest visit is the one in progress, and for the other third it is
+    the one that just ended. `current_visit` is the part-thrown visit and is
+    None whenever the last one finished -- because it was bust, checked out, or
+    had its third dart. `previous_visit` is the last visit that finished, and is
+    None only until one has. Both stay inside this leg; neither reaches back
+    across a leg boundary.
+    """
 
     leg_id: int
     leg_index: int
@@ -99,7 +112,10 @@ class LegState:
     darts_left: int
     next_thrower: Thrower | None
     teams: tuple[TeamLegState, ...]
-    last_visit: VisitState | None
+    #: The visit the next dart lands in, or None when no visit is part-thrown.
+    current_visit: VisitState | None
+    #: The last visit that finished, which is what a recap line reads.
+    previous_visit: VisitState | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,10 +130,19 @@ class GameState:
     finishes, and None once the match is won. A client that has just recorded a
     winning dart needs both -- the finished scoreboard to show, and somewhere
     to throw next.
+
+    `status` is reported rather than inferred. `is_complete` and `winner_team_id`
+    between them describe a match that was *played* to its end, and an abandoned
+    match is neither won nor still going; asking a reader to work that out from
+    the absence of a winner would have them guess wrong. Note that `active_leg_id`
+    is still the last unfinished leg of an abandoned match -- the leg exists and
+    its darts are readable -- so a caller that means "where may the next dart go"
+    must check `status` as well. #18 does exactly that at the HTTP edge.
     """
 
     match_id: int
     config: GameConfig
+    status: MatchStatus
     teams: tuple[Team, ...]
     legs_won: tuple[int, ...]
     winner_team_id: int | None

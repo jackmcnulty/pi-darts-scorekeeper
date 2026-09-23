@@ -71,7 +71,14 @@ from darts.repo.darts import (
 from darts.repo.legs import Leg, create_leg, delete_leg, legs_for_match, set_leg_winner
 from darts.repo.legstate import clear_leg_state, write_leg_state
 from darts.repo.matches import set_match_winner
-from darts.repo.visits import NewVisit, create_visit, delete_visit, update_visit, visits_for_leg
+from darts.repo.visits import (
+    NewVisit,
+    Visit,
+    create_visit,
+    delete_visit,
+    update_visit,
+    visits_for_leg,
+)
 from darts.services import derive
 from darts.services import state as public
 from darts.services.derive import Board, VisitVerdict
@@ -335,12 +342,7 @@ def _dart_state(dart: Dart) -> public.DartState:
     )
 
 
-def _last_visit(conn: sqlite3.Connection, leg_id: int) -> public.VisitState | None:
-    """The most recent visit of a leg and its darts, read back as stored."""
-    visits = visits_for_leg(conn, leg_id)
-    if not visits:
-        return None
-    visit = visits[-1]
+def _visit_state(visit: Visit, darts: Sequence[Dart]) -> public.VisitState:
     return public.VisitState(
         visit_id=visit.id,
         team_id=visit.team_id,
@@ -350,10 +352,30 @@ def _last_visit(conn: sqlite3.Connection, leg_id: int) -> public.VisitState | No
         score_after=visit.score_after,
         is_bust=visit.is_bust,
         is_complete=visit.is_complete,
-        darts=tuple(
-            _dart_state(dart) for dart in darts_for_leg(conn, leg_id) if dart.visit_id == visit.id
-        ),
+        darts=tuple(_dart_state(dart) for dart in darts if dart.visit_id == visit.id),
     )
+
+
+def _visits(
+    conn: sqlite3.Connection, leg_id: int
+) -> tuple[public.VisitState | None, public.VisitState | None]:
+    """The part-thrown visit and the last finished one, as `LegState` means them.
+
+    Only the final visit of a leg can be incomplete -- a visit ends before the
+    next one opens -- so the split is decided by that one row's `is_complete`,
+    and the finished visit is whichever of the last two it leaves over. Reading
+    the stored flag rather than counting darts keeps this agreeing with
+    `derive.visit_verdict`, which is what wrote it: a bust and a checkout both
+    finish a visit early and both say so in the column.
+    """
+    visits = visits_for_leg(conn, leg_id)
+    if not visits:
+        return None, None
+    darts = darts_for_leg(conn, leg_id)
+    if visits[-1].is_complete:
+        return None, _visit_state(visits[-1], darts)
+    previous = _visit_state(visits[-2], darts) if len(visits) > 1 else None
+    return _visit_state(visits[-1], darts), previous
 
 
 def _thrower_state(board: Board, leg: LegState) -> public.Thrower | None:
@@ -389,9 +411,11 @@ def _project(conn: sqlite3.Connection, leg_id: int) -> public.GameState:
     leg = derive.replay_stored(conn, board)
     legs = legs_for_match(conn, board.match.id)
     open_leg = next((row for row in legs if row.winner_team_id is None), None)
+    current_visit, previous_visit = _visits(conn, leg_id)
     return public.GameState(
         match_id=board.match.id,
         config=board.match.config,
+        status=board.match.status,
         teams=board.match.teams,
         legs_won=tuple(
             sum(1 for row in legs if row.winner_team_id == team_id) for team_id in board.team_ids
@@ -409,7 +433,8 @@ def _project(conn: sqlite3.Connection, leg_id: int) -> public.GameState:
             darts_left=leg.darts_left,
             next_thrower=_thrower_state(board, leg),
             teams=tuple(_team_leg_state(board, leg, i) for i in range(len(board.teams))),
-            last_visit=_last_visit(conn, leg_id),
+            current_visit=current_visit,
+            previous_visit=previous_visit,
         ),
     )
 

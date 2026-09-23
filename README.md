@@ -82,6 +82,13 @@ replays every leg from its raw darts and reports anything derived that no longer
 agrees — visit scores, dart flags, cricket effects and point events, the two
 replay caches, and the leg and match winners. It exits 0 when everything agrees.
 
+`frontend/src/api/schema.d.ts` holds the TypeScript types for every endpoint and
+is generated from the schema the app serves, then committed. Regenerate it with
+`npm run gen:api` from `frontend/` after changing any request or response model;
+`npm run gen:api:check` is what CI runs and fails on a stale or missing file.
+Generation needs both `uv` and Node, and builds the backend against a throwaway
+database — it never touches yours.
+
 ```sh
 # Backend
 uv run ruff check .
@@ -91,6 +98,7 @@ uv run pytest
 
 # Frontend
 cd frontend
+npm run gen:api:check
 npm run lint
 npm run typecheck
 npm run test
