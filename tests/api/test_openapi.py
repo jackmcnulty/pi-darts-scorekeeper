@@ -167,7 +167,9 @@ def test_the_stats_filters_are_documented_as_query_parameters(client: TestClient
 
 def test_the_documented_responses_match_what_the_endpoints_return(client: TestClient) -> None:
     healthz = client.get("/api/openapi.json").json()["paths"]["/api/healthz"]["get"]
-    assert set(healthz["responses"]) == {"200", "503"}
+    # `default` joined the two this route declares when #21 made every operation
+    # document the error envelope. tests/api/test_openapi_envelope.py owns that.
+    assert set(healthz["responses"]) == {"200", "503", "default"}
 
     report = client.get("/api/healthz").json()
     properties = client.get("/api/openapi.json").json()["components"]["schemas"]["HealthReport"]

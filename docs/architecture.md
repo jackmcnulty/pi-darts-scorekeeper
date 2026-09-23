@@ -194,6 +194,26 @@ carrying `{"reason": "leg_complete"}` and the like, because several distinct
 refusals share the one code. An unhandled exception is a 500 whose traceback
 goes to the log and never to the client.
 
+The schema did not say any of this until #21. Because the handlers return a raw
+`JSONResponse`, FastAPI never saw the shape and documented every failure as its
+own `HTTPValidationError` — which no route has returned since #16. The generated
+TypeScript client inherited that, so the frontend rule that no response type is
+hand-written was impossible to keep for errors.
+
+`api/openapi.py` fixes it in one place rather than with `responses=` on
+twenty-three operations across five merged tickets. `DartsApp.openapi()`
+rewrites the generated document: every failure response, plus a `default` added
+to every operation, points at `ErrorEnvelope`, and the superseded
+`HTTPValidationError`/`ValidationError` schemas are dropped once nothing
+references them. The `default` matters — a route that enumerates only its 422
+can still answer 500, and the client has to be ready for it.
+
+It is a documentation change; not a byte of what the server sends moved.
+`tests/api/test_openapi_envelope.py` is in two halves, and the second is the one
+that earns its keep: it makes real requests that really fail and validates the
+bodies against the very model the schema now advertises, so the document and the
+server cannot drift apart again without a test going red.
+
 #### Health has two independent failure conditions
 
 `/api/healthz` reports the cached boot `RecoveryStatus` *and* probes the
@@ -223,6 +243,109 @@ With no build present — the normal state in development and on CI, since
 `frontend/dist` is gitignored — nothing is mounted and unrouted paths say so.
 
 ### Frontend
+
+The shell every screen hangs off: routing, one typed way to reach the API, and
+the PWA layer. Built in #21; screens are #22 onwards.
+
+#### The server is authoritative, and the shell is built to say so
+
+Nothing on the phone decides anything about a game. The score, the checkout,
+whether a visit busts, whose throw it is — all of it is the server's, and the
+client's job is to show the last thing the server said and to be honest when it
+cannot reach it. Three decisions fall straight out of that, and each one would
+look arbitrary without it:
+
+- **Mutations are never retried.** `POST /api/legs/{leg_id}/darts` records a
+  dart and is not idempotent, so a retry after a response that was sent but
+  never arrived would score the same dart twice. A failed mutation stays
+  failed, the toast explains why, and the player taps again — a decision they
+  can see rather than one made for them. Queries retry freely; they only read.
+- **Offline means "the app shell loads", never "you can play".** The service
+  worker precaches enough to boot and nothing else.
+- **A caught render error says the score is safe**, because it is.
+
+#### The service worker never touches `/api`
+
+`sw/handler.ts` holds every routing decision as a plain function and `sw/sw.ts`
+is the dozen lines of listeners that cannot be unit-tested. The split exists
+because #21 requires the `/api` rule be proved by a test rather than by
+inspection, and a decision buried in a worker global can only be inspected.
+
+The rule is enforced structurally, not by care. `chooseStrategy` is
+**synchronous**, so the fetch listener can decline a request outright —
+`respondWith` is never called, and the browser makes the request itself exactly
+as if no worker were installed. An `async` decision could not do that: it would
+have to call `respondWith` first and work out what to do afterwards, putting
+every `/api` call inside the worker's control flow. `/api` is also checked
+before any other rule, so no later rule can reach it by accident.
+
+Strategies: `/api` and non-GET are network-only; navigations get the network
+with the cached shell behind them, which is what makes a deep link boot
+offline; hashed assets are cache-first; everything else is network-first. That
+mirrors the cache headers in *Routing order is load-bearing* above —
+`sw/handler.ts`'s `HASHED` and `api/static.py`'s `HASHED` are the same rule on
+the two sides of the wire.
+
+#### Nothing describes a payload by hand
+
+`api/client.ts` is a thin wrapper over `openapi-fetch` and the generated
+`schema.d.ts`. Failures arrive as exceptions rather than as a branch of the
+return value, because TanStack Query decides what to retry by catching, and a
+screen that forgot to check an `error` field would render `undefined` instead
+of saying something went wrong. `ApiError` means the server answered and
+refused; `OfflineError` means no answer arrived at all. Only the second is a
+connection problem, and that distinction is what drives the toast.
+
+This was only half true before #21 — see *One error envelope* above.
+
+#### Reachability is decided by evidence, not by `navigator.onLine`
+
+`api/connection.ts` moves only when a real request really succeeds or really
+fails: an `OfflineError` loses the connection, and *any* answer finds it again,
+including a 404 or a 409 — a server that refuses is a server that is plainly
+there. `navigator.onLine` reports an association with an access point, which in
+a garage is routinely true while the Pi is off or still booting, which is
+exactly the case this has to catch.
+
+There is no polling and no timer, so nothing here depends on a clock. Recovery
+needs a request to have happened, and TanStack Query's retries,
+`refetchOnReconnect` and `refetchOnWindowFocus` are what make one happen.
+
+#### The layout is the only thing that knows about the notch
+
+#4 put `viewport-fit=cover` in `index.html` and the `--safe-*` tokens in
+`tokens.css`. Without something applying them, `viewport-fit=cover` is strictly
+worse than not setting it, because the app then paints *under* the Dynamic
+Island. `RootLayout` applies all four as padding, once. A screen that genuinely
+needs to reach the edge undoes it locally with a negative margin of the same
+token — deliberately an escape hatch and not a prop, which would invite every
+screen to have an opinion about the notch.
+
+#### Every PWA asset is asserted into the build
+
+The SPA fallback that makes `/history/42` survive a reload also means a missing
+`apple-touch-icon.png` comes back as `200 text/html` rather than as a 404 — the
+server is structurally incapable of reporting one. So `src/pwa.test.ts` runs a
+real Vite build, reads the emitted `index.html` and manifest, and resolves every
+asset they reference against what the build actually wrote.
+
+`sw.js` is emitted at the root under that exact name: a hashed service worker
+could not be registered by a fixed URL, and one under `/assets/` would be scoped
+to `/assets/` and never see a navigation. It is also asserted to be
+self-contained, because Rollup is otherwise free to lift shared code into a
+hashed chunk the worker cannot name.
+
+The home-screen icons are committed PNGs rather than a build step, so `npm ci &&
+npm run build` needs no rasteriser and the bytes on the Pi are the bytes in git.
+`scripts/gen-icons.py` is how they were made — pure `zlib` and `struct`, no
+third-party packages, byte-reproducible.
+
+#### Four TypeScript projects, because `DOM` and `WebWorker` disagree
+
+`app`, `node`, `test`, and now `sw`. Both libs declare `self`, incompatibly, so
+a service worker cannot be typechecked by the app project and the app cannot be
+typechecked by the worker's. Only `sw/sw.ts` lives in the fourth;
+`sw/handler.ts` stays in `app` and is checked by both.
 
 ## Deployment
 

@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.sw.tsbuildinfo",
+    /* A fourth project exists for one file. `DOM` and `WebWorker` both declare
+     * `self`, incompatibly, so a service worker cannot be typechecked by the
+     * app project and the app cannot be typechecked by this one. */
+    "lib": ["ES2023", "WebWorker"]
+  },
+  "include": ["src/sw/sw.ts", "src/sw/handler.ts"],
+  "exclude": []
+}

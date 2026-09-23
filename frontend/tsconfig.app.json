@@ -26,7 +26,12 @@
   },
   /* Tests live in tsconfig.test.json, which is the only project allowed node
    * globals. Keeping them out of here is what stops app code reaching for
-   * process or fs by accident. */
+   * process or fs by accident.
+   *
+   * src/sw/sw.ts lives in tsconfig.sw.json for the opposite reason: it needs
+   * the WebWorker lib, whose `self` contradicts the DOM one this project
+   * relies on. Its logic is in src/sw/handler.ts, which stays here and is
+   * checked by both. */
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test-setup.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test-setup.ts", "src/sw/sw.ts"]
 }

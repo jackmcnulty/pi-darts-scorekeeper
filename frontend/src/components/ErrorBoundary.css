@@ -1,0 +1,63 @@
+/* Full-bleed, because whatever it replaced is not coming back on its own.
+ * Inset by the safe areas like every other root-level surface: an apology
+ * printed under the Dynamic Island is its own small insult. */
+.error-boundary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: calc(var(--safe-top) + var(--space-5)) calc(var(--safe-right) + var(--space-5))
+    calc(var(--safe-bottom) + var(--space-5)) calc(var(--safe-left) + var(--space-5));
+  background: var(--color-bg);
+}
+
+.error-boundary__panel {
+  width: 100%;
+  max-width: 32rem;
+}
+
+.error-boundary__title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-bold);
+}
+
+.error-boundary__body {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-muted);
+}
+
+/* The error's own words, kept legible and quotable rather than hidden. */
+.error-boundary__detail {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.error-boundary__actions {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.error-boundary__action {
+  flex: 1 1 0;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: var(--color-text-on-fill);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+}
+
+.error-boundary__action--quiet {
+  border-color: var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+}

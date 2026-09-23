@@ -1,0 +1,24 @@
+.app-shell {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/*
+ * The insets are applied as padding here, once, so that no screen has to
+ * remember. `min-height: 0` is what lets a child that scrolls actually
+ * scroll inside a flex column rather than growing the page.
+ *
+ * A screen that genuinely wants to reach the edge — #24's keypad should sit
+ * flush against the bottom bezel with only the home indicator's clearance
+ * inside it — can undo this locally with a negative margin of the same token,
+ * e.g. `margin-bottom: calc(-1 * var(--safe-bottom))`. That is deliberately
+ * an escape hatch and not an API: making it a prop would invite every screen
+ * to have an opinion about the notch, which is the situation this replaces.
+ */
+.app-shell__content {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+}

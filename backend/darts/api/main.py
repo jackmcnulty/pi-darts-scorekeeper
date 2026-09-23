@@ -31,6 +31,7 @@ from darts.api.export import router as export_router
 from darts.api.health import router as health_router
 from darts.api.logging_conf import RequestContextMiddleware, configure_logging
 from darts.api.matches import router as matches_router
+from darts.api.openapi import DartsApp
 from darts.api.play import router as play_router
 from darts.api.players import router as players_router
 from darts.api.static import mount_static
@@ -100,7 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings if settings is not None else Settings.from_env()
     configure_logging(resolved.log_level)
 
-    app = FastAPI(
+    app = DartsApp(
         title="darts",
         version=__version__,
         summary="Phone-first darts scorekeeper",

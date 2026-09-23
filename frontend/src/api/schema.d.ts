@@ -461,6 +461,25 @@ export interface paths {
 export type webhooks = Record<string, never>
 export interface components {
   schemas: {
+    /**
+     * ApiError
+     * @description What went wrong: a code to branch on, a sentence, and the specifics.
+     */
+    ApiError: {
+      /** @description A closed vocabulary; branch on this, not on the message. */
+      code: components['schemas']['ErrorCode']
+      /**
+       * Detail
+       * @description Whatever the code implies. Pydantic's per-field errors for `validation_error`; `{'reason': ...}` for a refused domain rule, which is how several distinct 409s are told apart without matching on prose; the health report for `service_unavailable`; absent for the rest.
+       * @default null
+       */
+      detail: unknown
+      /**
+       * Message
+       * @description One sentence, safe to show a human.
+       */
+      message: string
+    }
     /** BandsResponse */
     BandsResponse: {
       /** Hundred Plus */
@@ -548,6 +567,25 @@ export interface components {
       segment: number
     }
     /**
+     * ErrorCode
+     * @description Everything `error.code` is allowed to be.
+     * @enum {string}
+     */
+    ErrorCode:
+      | 'validation_error'
+      | 'invalid_request'
+      | 'not_found'
+      | 'conflict'
+      | 'service_unavailable'
+      | 'internal'
+    /**
+     * ErrorEnvelope
+     * @description The body of every failed `/api` response, whatever the status.
+     */
+    ErrorEnvelope: {
+      error: components['schemas']['ApiError']
+    }
+    /**
      * FilterResponse
      * @description What the request was narrowed to, echoed back so a client can label a chart.
      */
@@ -590,11 +628,6 @@ export interface components {
      * @enum {string}
      */
     GameType: 'x01' | 'cricket'
-    /** HTTPValidationError */
-    HTTPValidationError: {
-      /** Detail */
-      detail?: components['schemas']['ValidationError'][]
-    }
     /**
      * HealthReport
      * @description The body of `/api/healthz`, and the `detail` of its 503.
@@ -988,19 +1021,6 @@ export interface components {
       /** Team Id */
       team_id: number
     }
-    /** ValidationError */
-    ValidationError: {
-      /** Context */
-      ctx?: Record<string, never>
-      /** Input */
-      input?: unknown
-      /** Location */
-      loc: (string | number)[]
-      /** Message */
-      msg: string
-      /** Error Type */
-      type: string
-    }
     /**
      * Variant
      * @description Which cricket is being played. Mark accounting is the same in all three.
@@ -1093,6 +1113,15 @@ export interface operations {
           'application/json': components['schemas']['RebuildResponse']
         }
       }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
     }
   }
   take_snapshot_api_admin_snapshot_post: {
@@ -1111,6 +1140,15 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['SnapshotResponse']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1144,7 +1182,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1165,6 +1212,15 @@ export interface operations {
         }
         content: {
           'application/vnd.sqlite3': string
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1198,7 +1254,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1233,7 +1298,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1261,7 +1335,18 @@ export interface operations {
         headers: {
           [name: string]: unknown
         }
-        content?: never
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
       }
     }
   }
@@ -1291,7 +1376,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1326,7 +1420,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1357,7 +1460,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1390,7 +1502,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1423,7 +1544,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1454,7 +1584,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1485,7 +1624,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1516,7 +1664,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1547,7 +1704,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1580,7 +1746,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1615,7 +1790,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1646,7 +1830,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1681,7 +1874,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1717,7 +1919,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1753,7 +1964,16 @@ export interface operations {
           [name: string]: unknown
         }
         content: {
-          'application/json': components['schemas']['HTTPValidationError']
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
@@ -1774,6 +1994,15 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['VersionReport']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
         }
       }
     }
