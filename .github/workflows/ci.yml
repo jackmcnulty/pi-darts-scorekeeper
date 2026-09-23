@@ -21,7 +21,7 @@ jobs:
       - name: Check immutable migrations and apply schema to temporary databases
         env:
           MIGRATION_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: uv run pytest tests/db -v
+        run: uv run pytest tests/db tests/fixtures -v
 
   backend:
     name: backend

@@ -56,8 +56,9 @@ uv run darts-migrate /absolute/path/to/darts.db
 ```
 
 The parent directory must exist. Expected on a fresh file:
-`schema version 1; applied 1 migration(s)`; running again prints
-`schema version 1; applied 0 migration(s)` and changes no schema or ledger rows.
+`schema version 1; applied 1 migration(s); 2 view(s)`; running again prints
+`schema version 1; applied 0 migration(s); 2 view(s)` and changes no schema or
+ledger rows. Views are rebuilt on every run whether or not a migration applied.
 Failure prints a reason to stderr and returns exit status 1.
 
 The runner reads packaged `db/migrations/NNNN_name.sql` files in contiguous
@@ -82,7 +83,8 @@ The checksum test also reads the golden list from the PR base/push predecessor
 (`MIGRATION_BASE_REF`); old entries must remain identical even if SQL and the
 current golden list are edited together. New migrations append an entry. An old
 code version that lacks applied migrations refuses migration; rolling deployment
-code back must not rewrite the schema. Views are maintained separately in #13.
+code back must not rewrite the schema. Views are maintained separately; see
+[Views](#views).
 
 ## Tables and columns
 
@@ -291,18 +293,66 @@ indexes. Full stats query plans and 50,000-dart timing belong to #19.
 
 ## Views
 
-Not yet installed; #13 adds the replaceable `v_darts` and `v_visits` query surface.
+`backend/darts/db/views.sql` holds the complete, replaceable query surface, and
+`darts.db.views.install_views` drops every installed view and recreates it from
+that file in one transaction. Views carry no data, so **adding or changing one
+needs no migration**: edit the file. `user_version` does not move and no ledger
+row is written. Installing twice leaves exactly one copy of each view, and a
+view deleted from the file is retired on the next install.
+
+This is deliberately not the migration runner. That runner rejects `CREATE VIEW`
+and checksums every file it applies so an applied migration can never change —
+the opposite of what a view wants. The two allowlists stay separate: views.sql
+accepts `CREATE VIEW` and nothing else, migrations accept additive DDL and not
+views.
+
+Views are installed by `darts-migrate` and by `recovery.check_and_recover`, so
+a database that was created, migrated or auto-restored at boot always comes back
+with its query surface rather than tables alone. #16's lifespan calls
+`check_and_recover` and therefore needs no extra wiring.
+
+| View | Grain | Notes |
+| --- | --- | --- |
+| `v_darts` | One row per row in `darts` | Visit, leg, team, player and the whole match configuration denormalised in, plus the `cricket_dart_effects` row via a LEFT JOIN on its primary key. `score` is the raw board value (segment × multiplier), which is the x01 score only when `counted` is 1. |
+| `v_visits` | One row per row in `visits` | Adds `darts_thrown` and `total_scored`, plus the player and team that threw. A visit with no darts yet still appears, with both at 0. |
+
+`total_scored` follows what `score_before`/`score_after` already mean per game
+type: for x01 the sum of the visit's counted darts, which is 0 for a busted
+visit because a bust uncounts every dart in it while the darts themselves remain
+in `v_darts`; for cricket the thrower's points gained. Cricket point events are
+one row per recipient and would multiply rows, so they are not in `v_darts`;
+#19 may add a view for them without a migration.
 
 ## Statistics queries
 
 Implemented in #19 over views. Derive per-player statistics from player-attributed
 raw darts, not team totals or replay caches. Busts contribute actual dart count
-with zero score; undone darts do not exist.
+with zero score; undone darts do not exist. `tests/db/test_view_bypass.py` scans
+`backend/darts/stats/sql/` and fails any query reading `darts` or `visits`
+directly instead of through a view.
+
+## Fixture data
+
+`tests/fixtures/seed.py` builds the deterministic dataset #19's golden values are
+computed against: six players, a completed solo x01 match containing a bust and
+two checkouts, a 2v2 501 double-in/double-out match with uncounted opening darts
+and a leg still in progress, and one leg of each cricket variant. Every dart is a
+scripted throw driven through `darts.engine`, so `counted`, `caused_bust`,
+`is_bust`, the cricket effects and the point events are whatever the real rules
+produced rather than arithmetic written out by hand.
+
+Reproducibility is defined over rows, not file bytes: every column the schema
+would otherwise default from the clock is supplied explicitly, all IDs are
+derived from the match/leg/visit/dart indices, and `seed.dump` emits a canonical
+JSON snapshot of every seeded table that is identical on every run.
+`schema_migrations` is excluded, since `applied_at` is wall-clock by design.
+Seeded `client_dart_id` values are `seed:m<match>:l<leg>:d<seq>` — deterministic,
+globally unique, and obviously fixture data rather than a client token.
 
 ## Verify this foundation
 
 ```sh
-uv run pytest tests/db -v
+uv run pytest tests/db tests/fixtures -v
 ```
 
 Tests apply fresh migrations to real temporary files, check repeat no-op behavior,
@@ -311,6 +361,14 @@ concurrent startup, reject 24 distinct illegal dart INSERTs via SQLite CHECKs,
 accept all 63 engine throws, reject duplicate request IDs and cross-match FKs,
 and exercise cascades through complete matches and individual darts. An automated
 documentation test compares every actual table/column against this document.
+
+Views are covered by installing twice and counting copies, replacing and retiring
+definitions, rejecting anything that is not a `CREATE VIEW`, asserting
+`user_version` and the ledger do not move, row-count parity against `darts` and
+`visits`, and reinstallation through both `darts-migrate` and boot recovery. The
+fixture is covered by building it twice and comparing canonical dumps, and by
+checking it really does contain both x01 shapes, all three cricket variants, a
+bust and a checkout.
 
 The same directory covers crash durability, the boot integrity check, and the
 backup/restore CLIs; see [durability](durability.md).

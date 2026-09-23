@@ -15,6 +15,7 @@ from darts.db.backup import newest_valid, restore
 from darts.db.connection import connection
 from darts.db.durability import quarantine, verify_live
 from darts.db.migrate import migrate
+from darts.db.views import install_views
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,16 @@ def _prepare(database: Path) -> None:
     """Bring a database up to the current schema, creating it if absent.
 
     Every outcome ends here, so a restored backup taken at an older schema
-    version is serviceable the moment recovery returns.
+    version is serviceable the moment recovery returns. Views are reinstalled
+    too, and for the same reason: they are not carried by the migration ledger,
+    so a backup restored from an older build would otherwise come back with its
+    tables but no query surface, and the failure would not show until the first
+    statistics request.
     """
     database.parent.mkdir(parents=True, exist_ok=True)
     with connection(database) as conn:
         migrate(conn)
+        install_views(conn)
 
 
 def check_and_recover(
