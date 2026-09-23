@@ -361,7 +361,8 @@ transaction so their count and page share one snapshot.
 Player create and patch take `{"display_name": "Ana"}`; patch edits the name and
 requires it. Names are trimmed and must be nonblank. Create returns 201; patch and
 archive return the player with 200. Archive is idempotent and keeps historical
-members visible. Colour and scoreboard short name are deferred to #22.
+members visible. Colour and scoreboard short name were deferred to #22, and
+arrived there — see *Home screen and player management (#22)*.
 
 Match create takes `{"config": {...}, "teams": [{"player_ids": [1], "name": null},
 {"player_ids": [2]}]}` and returns full detail with 201. `GameConfig` is nested in
@@ -614,3 +615,91 @@ to unfinished legs could therefore never clean up a finished leg that wrongly
 held some, which is exactly the drift worth repairing. Over a correct database
 it changes nothing and reports `legs_changed: 0`. One transaction per leg rather
 than one for the sweep, because this can run while somebody is throwing.
+
+### Home screen and player management (#22)
+
+#### A player is a name, a colour and a short name
+
+#22's scope assumed two attributes that had never existed. `players` held
+`display_name`, `is_archived` and `created_at`, and `PlayerWrite` forbade
+anything else, so there was no colour to pick and nowhere to put a scoreboard
+label. `0003_player_identity.sql` adds both as nullable columns, because
+`ALTER TABLE ADD` cannot invent a per-row value and every player created before
+it genuinely has neither.
+
+**The colour is stored as an index, not a colour.** #4's eight accents were
+found by a search maximising the smallest perceptual distance across normal
+vision and simulated protanopia, deuteranopia and tritanopia, and its docstring
+forbids hand-editing them. Hex values copied into the database would be a second
+definition free to drift from the one the screens paint with, so `accent_index`
+is 1–8 and `tokens.css` stays the single source.
+`tests/db/test_accent_palette.py` fails if the count on either side moves.
+
+**Uniqueness is deliberately not a constraint.** "Two players cannot be assigned
+the same accent colour" is impossible past eight active players, and the choice
+between refusing a ninth person, reusing silently, and reusing visibly was
+Jack's. Reusing visibly won: `repo.players.next_accent_index` hands out the
+lowest-numbered least-held accent — always a free one below nine players — and
+the picker marks a taken swatch and names who holds it. The rule that matters
+is enforced where it can be: the accent is chosen *inside* the write
+transaction, so two phones adding a player at the same moment cannot both be
+handed the same free colour.
+
+**`PATCH` is genuinely partial**, for these two fields only. A `None` cannot
+mean both "leave it alone" and "clear it", so `repo.players.UNSET` is the
+absence and `None` is the clearing; the route reads `model_fields_set` to tell
+the two apart. Without that, renaming a player through a client that sent only
+`display_name` would silently erase their colour.
+
+#### The resume card is absent, never empty
+
+`GET /api/matches?status=in_progress&limit=1` answers the home screen in one
+request, and `MatchResponse` already carries the teams and their members, so the
+card can name who is playing without a second call. It renders nothing when
+there is nothing to resume, and nothing while the answer is still in flight: a
+card is a claim that a game is waiting, and a skeleton would make that claim
+before it is known and then take it back.
+
+It links to `/play/:matchId` rather than to a leg. `current_leg_id` is on the
+payload, but which leg is current changes while you walk to the board, so the
+play screen resolves it — the same reason the route was shaped that way in #21.
+
+Nothing on the card is guessed. `variant` and `start_score` are each nullable
+because the other game type has no use for them, and a match arriving without
+the one it needs is described by what it does have rather than by a
+plausible-looking default.
+
+#### Archived players are hidden by the server, not by a screen
+
+`GET /api/players` excludes them unless asked, which is the list every picker
+will get — so "hidden from the picker" is not a rule #23 onwards can forget to
+apply. The management screen is the one caller that passes
+`include_archived=true`, and it exists because a screen that cannot show you
+what it retired is hard to trust. Un-archiving is in the repository and not on
+the API; #22 did not need it and did not add it.
+
+#### One inline error, branched on the discriminator
+
+A repeated name comes back as a 409 whose `detail.reason` is `duplicate_name`,
+and the form branches on `reasonOf(error)` — not on the status, which several
+distinct refusals share, and not on the message, which is prose. It lands under
+the name field rather than in a toast, because it is a fact about that field,
+and it clears the moment the name changes.
+
+#### Screens are tested through the router, in front of a mock Pi
+
+`src/test-harness.tsx` mounts `App` under a `MemoryRouter` and the app's own
+`createQueryClient`, with MSW answering. Screens are therefore never imported
+directly by a test: a route wired to the wrong component fails in the test
+rather than in somebody's hands, and retry and staleness behave as they will on
+the phone. Its query client gets a fresh `ConnectionMonitor` rather than the
+module-level one, which would otherwise carry a dropped connection between
+tests.
+
+It is not a `*.test.tsx`, so it is named explicitly in three places —
+`tsconfig.test.json`'s includes, `tsconfig.app.json`'s excludes, and the
+coverage excludes. It is scaffolding, and counting it as app code either way
+would be wrong.
+
+`RootLayout` owns the notch and nothing else, so each screen owns its own
+gutter, exactly as `Placeholder.css` has since #21.

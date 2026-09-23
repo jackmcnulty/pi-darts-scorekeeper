@@ -53,6 +53,10 @@ export default defineConfig({
       exclude: [
         'src/**/*.test.{ts,tsx}',
         'src/test-setup.ts',
+        // Test scaffolding, not app code: it mounts screens in front of a mock
+        // Pi. Named in tsconfig.test.json and excluded from tsconfig.app.json
+        // for the same reason.
+        'src/test-harness.tsx',
         'src/vite-env.d.ts',
         // The two files that exist only to be wired up, and cannot run under
         // jsdom: main.tsx needs a real document to mount into, and sw.ts

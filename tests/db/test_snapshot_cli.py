@@ -10,7 +10,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from dbfixtures import add_visit, scaffold
+from dbfixtures import SCHEMA_VERSION, add_visit, scaffold
 
 from darts.db.connection import connection, transaction
 from darts.services.snapshot import default_snapshot_dir
@@ -42,7 +42,7 @@ def test_it_writes_beside_the_database_and_reports_what_it_did(
     out = capsys.readouterr().out
     assert str(snapshot) in out
     assert str(manifest) in out
-    assert "schema version 2" in out
+    assert f"schema version {SCHEMA_VERSION}" in out
     # The row total it reports is the manifest's own, not a number typed here.
     total = sum(json.loads(manifest.read_text(encoding="utf-8"))["row_counts"].values())
     assert f"{total} row(s)" in out
@@ -56,7 +56,7 @@ def test_the_manifest_counts_what_the_snapshot_holds(played: Path) -> None:
         (default_snapshot_dir(played) / "snapshot.json").read_text(encoding="utf-8")
     )
     assert manifest["snapshot"] == "darts-latest.db"
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == SCHEMA_VERSION
     assert manifest["row_counts"]["darts"] == 15
     assert manifest["row_counts"]["visits"] == 5
     assert manifest["source"] == str(played)

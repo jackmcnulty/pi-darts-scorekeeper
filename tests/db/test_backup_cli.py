@@ -5,7 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
-from dbfixtures import add_visit, dump, scaffold
+from dbfixtures import SCHEMA_VERSION, add_visit, dump, scaffold
 
 from darts.db.backup import create, default_backup_dir, discover
 from darts.db.connection import connection, transaction
@@ -38,7 +38,7 @@ def test_backup_writes_beside_the_database_and_reports_what_it_did(
     out = capsys.readouterr().out
     (backup,) = discover(default_backup_dir(played), "darts")
     assert str(backup.path) in out
-    assert "schema version 2" in out
+    assert f"schema version {SCHEMA_VERSION}" in out
     assert "pruned 0" in out
     manifest = json.loads(backup.manifest_path.read_text())
     assert manifest["row_counts"]["darts"] == 15

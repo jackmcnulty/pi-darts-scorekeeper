@@ -1,0 +1,39 @@
+.accent-picker__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.accent-picker__swatch {
+  min-height: var(--touch-min);
+  min-width: var(--touch-min);
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--swatch);
+  cursor: pointer;
+  position: relative;
+}
+
+.accent-picker__swatch--selected {
+  border-color: var(--color-text);
+  box-shadow: var(--elevation-2);
+}
+
+/* A taken colour is marked, not disabled: at nine players there is no free one
+ * left, and refusing would mean the ninth person cannot be added. */
+.accent-picker__swatch[data-taken='true']::after {
+  content: '';
+  position: absolute;
+  inset: auto var(--space-2) var(--space-2) auto;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-on-fill);
+  opacity: 0.55;
+}
+
+.accent-picker__clash {
+  margin: var(--space-2) 0 0;
+  color: var(--color-warning);
+  font-size: var(--text-sm);
+}

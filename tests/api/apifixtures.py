@@ -14,8 +14,14 @@ from pydantic import BaseModel
 
 from darts.api.errors import install_error_handlers
 from darts.config import Settings
+from darts.db.migrate import MIGRATIONS, discover
 from darts.repo.errors import DuplicateNameError, InvalidMatchError, NotFoundError, RepoError
 from darts.services.errors import LegCompleteError, ServiceError
+
+#: The schema version this code expects, read off the migration files. Health,
+#: snapshots and the export all report it, and none of those tests is about
+#: which migration happens to be last.
+SCHEMA_VERSION = discover(MIGRATIONS)[-1].version
 
 #: Names matching what Vite actually emitted into `frontend/dist` on 2026-09-23.
 HASHED_JS = "index-BKd04slA.js"

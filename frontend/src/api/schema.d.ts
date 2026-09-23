@@ -848,6 +848,8 @@ export interface components {
     }
     /** PlayerResponse */
     PlayerResponse: {
+      /** Accent Index */
+      accent_index: number | null
       /** Created At */
       created_at: string
       /** Display Name */
@@ -856,6 +858,8 @@ export interface components {
       id: number
       /** Is Archived */
       is_archived: boolean
+      /** Short Name */
+      short_name: string | null
     }
     /** PlayerStatsResponse */
     PlayerStatsResponse: {
@@ -880,10 +884,26 @@ export interface components {
       segments: components['schemas']['SegmentResponse'][]
       x01: components['schemas']['X01Response']
     }
-    /** PlayerWrite */
+    /**
+     * PlayerWrite
+     * @description The editable half of a player, read slightly differently by each verb.
+     *
+     *     `display_name` is required either way. The other two are optional, and what
+     *     leaving one out means depends on the verb:
+     *
+     *     * `POST` -- no accent means "choose one", and the server picks a colour no
+     *       active player is using. No short name means there isn't one.
+     *     * `PATCH` -- a field that is absent is left exactly as it was, and a field
+     *       sent as `null` is cleared. Those are different requests, which is why the
+     *       route reads `model_fields_set` rather than treating `None` as both.
+     */
     PlayerWrite: {
+      /** Accent Index */
+      accent_index?: number | null
       /** Display Name */
       display_name: string
+      /** Short Name */
+      short_name?: string | null
     }
     /**
      * RebuildResponse

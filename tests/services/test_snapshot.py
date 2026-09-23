@@ -20,8 +20,13 @@ from darts.config import Settings
 from darts.db.artifact import ArtifactError
 from darts.db.connection import connection, transaction
 from darts.db.durability import SIDECARS, read_only_uri
+from darts.db.migrate import MIGRATIONS, discover
 from darts.repo.players import create_player
 from darts.services import snapshot
+
+#: Read off the migration files: this asserts the manifest reports the version,
+#: not which migration happens to be last.
+SCHEMA_VERSION = discover(MIGRATIONS)[-1].version
 
 
 @pytest.fixture
@@ -165,7 +170,7 @@ def test_the_manifest_carries_the_timestamp_version_and_size(played: Path, snaps
     result = snapshot.create(played, snapshots, now=moment)
 
     assert result.created_at == "20260923T101500Z"
-    assert result.schema_version == 2
+    assert result.schema_version == SCHEMA_VERSION
     assert result.size_bytes == result.path.stat().st_size
     assert result.manifest["snapshot"] == "darts-latest.db"
     assert result.manifest["source"] == str(played)

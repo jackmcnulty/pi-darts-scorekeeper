@@ -6,6 +6,11 @@
  * `index.html` to any non-`/api` path, the app boots with no history behind
  * it, and the client alone decides what that path means.
  *
+ * Since #22 two of those addresses fetch, so the mount goes through
+ * `renderApp`, which supplies the query client the app supplies, in front of a
+ * Pi that answers. What each screen does with the answer is its own test file's
+ * business; this one is about which screen a path reaches.
+ *
  * React reports most of what it dislikes -- bad keys, invalid props, bad
  * nesting -- through `console.error` rather than by throwing, so "did not
  * throw" is not enough and every test also checks the console stayed clean.
@@ -13,11 +18,13 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import process from 'node:process'
-import { render, screen } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { screen } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import type { MockInstance } from 'vitest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import App from './App'
+import { installServer, renderApp, server } from './test-harness'
+
+installServer()
 
 let consoleError: MockInstance<typeof console.error>
 let consoleWarn: MockInstance<typeof console.warn>
@@ -25,6 +32,14 @@ let consoleWarn: MockInstance<typeof console.warn>
 beforeEach(() => {
   consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
   consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  // An empty box. Nothing here is about what the screens show, only about
+  // which screen is mounted, so every answer is the emptiest legal one.
+  server.use(
+    http.get('*/api/matches', () =>
+      HttpResponse.json({ items: [], total: 0, limit: 1, offset: 0 }),
+    ),
+    http.get('*/api/players', () => HttpResponse.json([])),
+  )
 })
 
 afterEach(() => {
@@ -36,18 +51,22 @@ function expectCleanConsole() {
   expect(consoleWarn).not.toHaveBeenCalled()
 }
 
-function openAt(path: string) {
-  return render(
-    <MemoryRouter initialEntries={[path]}>
-      <App />
-    </MemoryRouter>,
-  )
-}
+const openAt = renderApp
 
-describe('the screens #22 onwards will fill in', () => {
+describe('the screens #22 built', () => {
   it.each([
-    ['/', 'Darts', '#22'],
-    ['/players', 'Players', '#22'],
+    ['/', 'Darts'],
+    ['/players', 'Players'],
+  ])('%s routes to the real %s screen, not a placeholder', async (path, title) => {
+    openAt(path)
+    expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument()
+    expect(screen.queryByText(/waiting on/i)).not.toBeInTheDocument()
+    expectCleanConsole()
+  })
+})
+
+describe('the screens #23 onwards will fill in', () => {
+  it.each([
     ['/setup', 'New match', '#23'],
     ['/history', 'History', '#26'],
     ['/stats', 'Stats', '#27'],

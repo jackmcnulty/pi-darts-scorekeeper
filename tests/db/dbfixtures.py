@@ -4,15 +4,33 @@ A plain module rather than conftest.py: the subprocess in test_durability.py
 imports it directly, and it must not depend on pytest being in the picture.
 """
 
+import shutil
 import sqlite3
 from pathlib import Path
 
-from darts.db.migrate import migrate
+from darts.db.migrate import MIGRATIONS, discover, migrate
+
+#: The schema version this code expects, read off the migration files rather
+#: than written down, so that adding one does not mean hunting for literals.
+SCHEMA_VERSION = discover(MIGRATIONS)[-1].version
 
 MATCH = 1
 LEG = 100
 TEAMS = (10, 20)
 PLAYERS = {10: 1, 20: 2}
+
+
+def migrations_upto(root: Path, version: int) -> Path:
+    """A copy of the migrations directory as it looked at `version`.
+
+    What an already-running Pi has on disk before it is updated, which is the
+    only way to test that an upgrade leaves the rows already there alone.
+    """
+    older = root / f"v{version}"
+    older.mkdir()
+    for path in sorted(MIGRATIONS.glob("*.sql"))[:version]:
+        shutil.copyfile(path, older / path.name)
+    return older
 
 
 def scaffold(conn: sqlite3.Connection) -> None:

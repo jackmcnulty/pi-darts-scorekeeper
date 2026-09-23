@@ -15,7 +15,7 @@ from contextlib import closing
 from pathlib import Path
 
 import pytest
-from apifixtures import make_settings
+from apifixtures import SCHEMA_VERSION, make_settings
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from seed import build
@@ -144,7 +144,7 @@ def test_the_statistics_export_is_a_self_describing_document(client: TestClient)
         "leaderboard",
         "players",
     }
-    assert document["schema_version"] == 2
+    assert document["schema_version"] == SCHEMA_VERSION
     assert document["generated_at"].endswith("Z")
     assert document["filter"] == {
         "game_type": None,
@@ -309,7 +309,7 @@ def test_the_downloaded_database_is_a_fresh_self_contained_copy(
         assert [row[0] for row in conn.execute("PRAGMA integrity_check")] == ["ok"]
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         assert conn.execute("PRAGMA journal_mode").fetchone()[0] != "wal"
-        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 2
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == SCHEMA_VERSION
         assert conn.execute("SELECT count(*) FROM darts").fetchone()[0] > 0
         assert conn.execute("SELECT count(*) FROM v_darts").fetchone()[0] > 0
 

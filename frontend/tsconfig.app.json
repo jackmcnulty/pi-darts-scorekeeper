@@ -33,5 +33,11 @@
    * relies on. Its logic is in src/sw/handler.ts, which stays here and is
    * checked by both. */
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test-setup.ts", "src/sw/sw.ts"]
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/test-setup.ts",
+    "src/test-harness.tsx",
+    "src/sw/sw.ts"
+  ]
 }
