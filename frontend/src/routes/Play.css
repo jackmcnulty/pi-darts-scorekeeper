@@ -1,0 +1,209 @@
+/* The play screen's frame and the rows above the keypad.
+ *
+ * Lifted from #4's `style/mockups/mockup.css` and `X01Mockup.css`, which are the
+ * design that was approved on a real iPhone at 402x874. Copied rather than
+ * imported: the mockups are the artefact of a decision and stay frozen at
+ * /style/x01, while this is the screen, and the two should be free to diverge
+ * without one silently restyling the other.
+ *
+ * THE HEIGHT BUDGET IS THE POINT. 874 CSS px, minus the Dynamic Island inset,
+ * minus the home indicator inset. The frame is a fixed-height flex column that
+ * never scrolls: every row above the keypad is `flex: none` and the keypad grid
+ * is the single `flex: 1 1 auto` that absorbs what is left. So a row added
+ * above -- the bust banner, the error strip -- takes its height out of the keys
+ * rather than out of the bottom of the screen, and the keys stop shrinking at
+ * the 56px touch floor, at which point the overflow CLIPS VISIBLY instead of
+ * quietly becoming scrollable. A layout mistake is then something you can see
+ * rather than something you discover with three darts in your hand.
+ *
+ * jsdom does no layout, so no test can prove the 402x874 fit; what
+ * `Play.test.tsx` asserts is that these two declarations are present, by parsing
+ * this file as text. The pixel fit is verified by construction, not on a device.
+ * #32 is where it gets checked on the phone. */
+.play {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--color-bg);
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+  padding-left: calc(var(--space-3) + var(--safe-left));
+  padding-right: calc(var(--space-3) + var(--safe-right));
+}
+
+.play__topbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--touch-min);
+}
+
+/* Interactive, so it sits on the same 56px floor as everything else. */
+.play__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  margin-left: calc(var(--space-3) * -1);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-lg);
+  text-decoration: none;
+  border-radius: var(--radius-full);
+}
+
+.play__context {
+  flex: 1 1 auto;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Balances the back chevron so the context line is centred on the screen and
+ * not on the space left over beside it. */
+.play__topbar-spacer {
+  width: var(--touch-min);
+  flex: none;
+}
+
+.play__cards {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* Current turn: the darts of the visit on screen, what it has scored, and the
+ * checkout for whoever throws next. */
+.play__turn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.play__darts {
+  display: flex;
+  gap: var(--space-2);
+  flex: none;
+}
+
+.play__dart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-numeric);
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.play__dart--empty {
+  background: transparent;
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+/* What the visit on screen has scored. 180 after three triple twenties, and 0
+ * after a bust -- which is the arithmetic the server already did. */
+.play__visit-total {
+  flex: none;
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+.play__checkout {
+  flex: 1 1 auto;
+  text-align: right;
+  min-width: 0;
+}
+
+.play__checkout-label {
+  display: block;
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.play__checkout-value {
+  display: block;
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  color: var(--color-success);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* One line, because it takes its height out of the keypad. Danger-coloured and
+ * worded, so colour is not the only thing saying what happened. */
+.play__bust {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-danger);
+  color: var(--color-text-on-fill);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+
+.play__done {
+  flex: none;
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.play__error {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+/* Loading, refusals and the cricket notice. Grows so the frame keeps its shape
+ * whatever it is saying. */
+.play__note {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  margin: 0;
+  text-align: center;
+  color: var(--color-text-secondary);
+}

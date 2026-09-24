@@ -22,6 +22,7 @@ import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { MockInstance } from 'vitest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { matchState } from './play/statefixture'
 import { installServer, renderApp, server } from './test-harness'
 
 installServer()
@@ -39,6 +40,9 @@ beforeEach(() => {
       HttpResponse.json({ items: [], total: 0, limit: 1, offset: 0 }),
     ),
     http.get('*/api/players', () => HttpResponse.json([])),
+    // #24's screen is the first deep link that reads a match, so an empty box
+    // is not enough for it: `/play/7` fetches before it can draw anything.
+    http.get('*/api/matches/:matchId/state', () => HttpResponse.json(matchState())),
   )
 })
 
@@ -66,7 +70,7 @@ describe('the screens that are built', () => {
   })
 })
 
-describe('the screens #24 onwards will fill in', () => {
+describe('the screens #26 onwards will fill in', () => {
   it.each([
     ['/history', 'History', '#26'],
     ['/stats', 'Stats', '#27'],
@@ -89,16 +93,31 @@ describe('deep links', () => {
     expectCleanConsole()
   })
 
-  it('/play/7 loads the play screen', () => {
+  it('/play/7 loads the real play screen, not a placeholder', async () => {
     openAt('/play/7')
-    expect(screen.getByRole('heading', { name: 'Play' })).toBeInTheDocument()
+    // The dart slots rather than a heading: #24's screen has no h1, because the
+    // topbar's context line is what a scoreboard puts there and a heading would
+    // cost a row of the height budget for nothing.
+    expect(await screen.findByRole('group', { name: 'This visit' })).toBeInTheDocument()
+    expect(screen.queryByText(/waiting on/i)).not.toBeInTheDocument()
     expectCleanConsole()
   })
 
-  it.each(['/history/42', '/play/7', '/history/99999'])('%s renders inside the shell', (path) => {
+  it.each(['/history/42', '/history/99999'])('%s renders inside the shell', (path) => {
     openAt(path)
     // The layout wraps every route, deep links included -- which is what
     // holds the content clear of the Dynamic Island on a reload.
+    expect(document.querySelector('.app-shell__content')).not.toBeNull()
+    expectCleanConsole()
+  })
+
+  it('/play/7 renders inside the shell', async () => {
+    // Split out from the pair above because this is the one deep link that
+    // fetches: the assertion has to come after the read has settled, or a state
+    // update landing later is an act warning charged to whatever test ran next.
+    openAt('/play/7')
+    await screen.findByRole('group', { name: 'This visit' })
+
     expect(document.querySelector('.app-shell__content')).not.toBeNull()
     expectCleanConsole()
   })

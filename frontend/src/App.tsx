@@ -25,6 +25,7 @@ import { StyleGuide } from './style/StyleGuide'
 import { Home } from './routes/Home'
 import { NotFound } from './routes/NotFound'
 import { Placeholder } from './routes/Placeholder'
+import { Play } from './routes/Play'
 import { Players } from './routes/Players'
 import { RootLayout } from './routes/RootLayout'
 import { Setup } from './routes/Setup'
@@ -37,8 +38,10 @@ export default function App() {
         <Route path="players" element={<Players />} />
         <Route path="setup" element={<Setup />} />
         {/* One path for both game types: #24 is x01 and #25 is cricket, but a
-            match knows which it is, and the player only ever taps "play". */}
-        <Route path="play/:matchId" element={<Placeholder title="Play" ticket="#24 / #25" />} />
+            match knows which it is, and the player only ever taps "play". #24
+            reads `config.game_type` and gives a cricket match a notice naming
+            #25, rather than drawing an x01 board for a game that has none. */}
+        <Route path="play/:matchId" element={<Play />} />
         <Route path="history" element={<Placeholder title="History" ticket="#26" />} />
         <Route path="history/:matchId" element={<Placeholder title="Match" ticket="#26" />} />
         <Route path="stats" element={<Placeholder title="Stats" ticket="#27" />} />

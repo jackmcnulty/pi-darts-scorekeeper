@@ -6,6 +6,12 @@
      * project — gets the node globals. */
     "types": ["vite/client", "node"]
   },
-  "include": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test-setup.ts", "src/test-harness.tsx"],
+  "include": [
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/test-setup.ts",
+    "src/test-harness.tsx",
+    "src/play/statefixture.ts"
+  ],
   "exclude": []
 }
