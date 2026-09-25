@@ -375,11 +375,18 @@ read_running_sha() {
 # it happens to be sitting on -- unlike a deploy log on the target, which would
 # be one more piece of state that has to stay correct for a rollback to work.
 #
-# Two round trips rather than one: `docker image inspect` accepts several
-# images and emits one line each *in argument order*, which is what makes the
-# labels pairable with the tags without parsing RepoTags (an image with two tags
-# would otherwise be ambiguous). Images with no label sort last, which is right:
-# they predate this and are therefore older than anything that has one.
+# The label is read back by image id and joined on it, rather than relying on
+# `docker image inspect` emitting one line per argument in argument order. It
+# does not do that, in two ways that were both measured here: given an image
+# whose config carries no `Labels` key at all, `{{index .Config.Labels "x"}}`
+# raises a template error, writes it to stderr, and emits *no line* for that
+# image; and the surviving lines come back in an order of their own, not the
+# order asked for. Pairing by position therefore silently attributes one
+# image's build time to another. Hence `{{with index .Config "Labels"}}`, which
+# tolerates the missing key, and an explicit join on `{{.Id}}`.
+#
+# Images with no label sort last, which is right: they predate this and are
+# therefore older than anything that has one.
 #
 # `latest` is filtered out because it is an alias for one of these, not a
 # further image.
@@ -390,44 +397,41 @@ list_remote_tags() {
     return 0
   fi
 
-  local tags="" labels="" refs=""
-  tags="$(
-    query_target "docker image ls 'darts' --format '{{.Tag}}'" |
-      grep -v -e '^latest$' -e '^<none>$' || true
+  # "<tag> <full image id>", one per line, `latest` dropped.
+  local pairs=""
+  pairs="$(
+    query_target "docker image ls 'darts' --no-trunc --format '{{.Tag}} {{.ID}}'" |
+      grep -v -e '^latest ' -e '^<none> ' || true
   )"
 
-  if [ -z "$tags" ]; then
+  if [ -z "$pairs" ]; then
     REMOTE_TAGS=""
     return 0
   fi
 
-  local tag
-  while IFS= read -r tag; do
+  local refs="" tag="" id=""
+  while IFS=' ' read -r tag id; do
+    [ -n "$id" ] || continue
+    refs="${refs} ${id}"
+  done <<<"$pairs"
+
+  # "<full image id> <build stamp or nothing>", one per line.
+  local stamps=""
+  stamps="$(
+    query_target "docker image inspect --format '{{.Id}} {{with index .Config \"Labels\"}}{{index . \"${BUILT_AT_LABEL}\"}}{{end}}'${refs}"
+  )" || stamps=""
+
+  # Join on the id, then sort by stamp descending. A missing or non-numeric
+  # stamp becomes 0 so it sorts last rather than aborting the sort.
+  local combined="" stamp=""
+  while IFS=' ' read -r tag id; do
     [ -n "$tag" ] || continue
-    refs="${refs} darts:${tag}"
-  done <<<"$tags"
-
-  labels="$(
-    query_target "docker image inspect --format '{{index .Config.Labels \"${BUILT_AT_LABEL}\"}}'${refs}"
-  )" || labels=""
-
-  # Pair by position, sort numerically descending, keep the tag. An absent or
-  # non-numeric label -- `<no value>` on an image built before this existed --
-  # becomes 0 and sorts to the bottom rather than aborting the sort.
-  local -a stamps=()
-  local line
-  while IFS= read -r line; do stamps+=("$line"); done <<<"$labels"
-
-  local combined="" stamp="" index=0
-  while IFS= read -r tag; do
-    [ -n "$tag" ] || continue
-    stamp="${stamps[$index]:-}"
+    stamp="$(printf '%s\n' "$stamps" | awk -v want="$id" '$1 == want { print $2; exit }')"
     case "$stamp" in
       '' | *[!0-9]*) stamp=0 ;;
     esac
     combined="${combined}${stamp} ${tag}"$'\n'
-    index=$((index + 1))
-  done <<<"$tags"
+  done <<<"$pairs"
 
   REMOTE_TAGS="$(printf '%s' "$combined" | sort -k1,1rn | awk '{ print $2 }')"
 }
@@ -559,11 +563,24 @@ prune_images() {
     return 0
   fi
 
+  # Collected into an array *before* anything talks to the target, rather than
+  # calling ssh from inside the read loop.
+  #
+  # ssh reads its own stdin, and inside `while read ... <<<"$list"` that stdin is
+  # the remainder of the list. The first `docker image rm` therefore swallows
+  # every tag after it and the loop ends after one iteration -- which is exactly
+  # what happened here: a deploy that should have pruned three images pruned one,
+  # reported success, and left six tags on a box with a budget of five. Nothing
+  # failed, so nothing said so.
+  local -a doomed_tags=()
   local tag
   while IFS= read -r tag; do
-    [ -n "$tag" ] || continue
-    run on_target docker image rm "darts:${tag}"
+    [ -n "$tag" ] && doomed_tags+=("$tag")
   done <<<"$doomed"
+
+  for tag in ${doomed_tags[@]+"${doomed_tags[@]}"}; do
+    run on_target docker image rm "darts:${tag}"
+  done
 }
 
 rollback() {
