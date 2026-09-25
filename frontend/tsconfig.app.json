@@ -38,6 +38,7 @@
     "src/**/*.test.tsx",
     "src/test-setup.ts",
     "src/test-harness.tsx",
+    "src/play/statefixture.ts",
     "src/sw/sw.ts"
   ]
 }

@@ -4,6 +4,7 @@ import '../styles/global.css'
 import { Button } from './Button'
 import { Chip } from './Chip'
 import { Key } from './Key'
+import { ScoreCard } from './ScoreCard'
 import { SegmentedControl } from './SegmentedControl'
 import { Stepper } from './Stepper'
 
@@ -111,5 +112,33 @@ describe('touch targets', () => {
     render(<Stepper label="Legs to win" value={3} min={1} max={9} />)
     expectTouchTarget(screen.getByLabelText('Decrease Legs to win'))
     expectTouchTarget(screen.getByLabelText('Increase Legs to win'))
+  })
+})
+
+/**
+ * `ScoreCard` in the two shapes #24 does not use but #25 and the mockups do.
+ *
+ * The play screen always supplies a label and an x01 score, so the unlabelled
+ * and scoreless paths would otherwise go unexercised -- and they are exactly the
+ * paths #25 needs, since a cricket team has marks where a score would be.
+ */
+describe('the score card', () => {
+  it('renders an em dash for a team with no score, as cricket has', () => {
+    render(<ScoreCard name="Jack" score={null} />)
+
+    expect(screen.getByText('—')).toBeInTheDocument()
+    // No label supplied, so it is not a group and announces as plain content.
+    expect(screen.queryByRole('group')).not.toBeInTheDocument()
+  })
+
+  it('shows an average only once there is one', () => {
+    const { rerender } = render(<ScoreCard name="Jack" score={501} average={null} legs={0} />)
+    // Null is "has not thrown", and 0.0 would read as a bad average instead.
+    expect(screen.queryByText(/^Avg/)).not.toBeInTheDocument()
+    expect(screen.getByText('Legs 0')).toBeInTheDocument()
+
+    rerender(<ScoreCard name="Jack" score={441} average={58.35} legs={1} />)
+    // Rounded for display by the card, not by the caller sending fewer digits.
+    expect(screen.getByText('Avg 58.4')).toBeInTheDocument()
   })
 })

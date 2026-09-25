@@ -1011,6 +1011,8 @@ export interface components {
       remaining: number | null
       /** Team Id */
       team_id: number
+      /** Three Dart Average */
+      three_dart_average: number | null
     }
     /** TeamResponse */
     TeamResponse: {

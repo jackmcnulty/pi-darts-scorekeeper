@@ -397,6 +397,11 @@ def _team_leg_state(board: Board, leg: LegState, team_index: int) -> public.Team
         darts_thrown=cache.darts_thrown,
         points=cache.points,
         marks=cache.marks,
+        # Off the replay, not off `cache`: `leg_team_state` stores what is needed
+        # to resume a leg, and an average is derivable from the darts rather than
+        # a fact about them. Keeping it out of `TeamCache` keeps the cache row --
+        # and #13's verify pass over it -- exactly as it is.
+        three_dart_average=derive.three_dart_average(leg, team_index),
     )
 
 

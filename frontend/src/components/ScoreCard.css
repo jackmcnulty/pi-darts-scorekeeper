@@ -79,3 +79,13 @@
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+/* The rest of the team in a 2v2, on the meta line under the lead name. It
+ * ellipsizes rather than wraps: the card is a fixed row in a screen with no
+ * scroll, so a long second name has to lose characters and not gain a line. */
+.scorecard__with {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

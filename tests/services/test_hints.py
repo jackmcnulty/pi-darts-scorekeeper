@@ -46,6 +46,8 @@ def x01_leg(
         darts_left=darts_left,
         next_thrower=Thrower(team_id=10, player_id=100, display_name="Ana") if thrower else None,
         teams=(
+            # No average on either: these legs are built with no darts, and a
+            # hint is decided by the score and the rules regardless.
             TeamLegState(
                 team_id=10,
                 remaining=remaining,
@@ -53,9 +55,16 @@ def x01_leg(
                 darts_thrown=0,
                 points=0,
                 marks=None,
+                three_dart_average=None,
             ),
             TeamLegState(
-                team_id=11, remaining=501, is_open=True, darts_thrown=0, points=0, marks=None
+                team_id=11,
+                remaining=501,
+                is_open=True,
+                darts_thrown=0,
+                points=0,
+                marks=None,
+                three_dart_average=None,
             ),
         ),
         current_visit=None,

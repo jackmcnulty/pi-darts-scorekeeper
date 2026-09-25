@@ -16,6 +16,7 @@ import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { components } from '../api/schema'
 import type { MatchWrite } from '../setup/config'
+import { matchState } from '../play/statefixture'
 import '../styles/global.css'
 import { installServer, renderApp, server } from '../test-harness'
 
@@ -96,6 +97,10 @@ beforeEach(() => {
       posted.push(body)
       return HttpResponse.json(created(body), { status: 201 })
     }),
+    // Starting a match navigates to #24's screen, which reads the match it
+    // landed on. What that screen does with the answer is Play.test.tsx's
+    // business; this file only needs the navigation to arrive somewhere real.
+    http.get('*/api/matches/:matchId/state', () => HttpResponse.json(matchState())),
   )
 })
 
@@ -199,7 +204,7 @@ describe('the start button', () => {
 
     release()
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Play' })).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: 'This visit' })).toBeInTheDocument()
     })
     expect(posted).toHaveLength(1)
   })
@@ -242,7 +247,7 @@ describe('building a match', () => {
     await user.click(screen.getByRole('button', { name: 'Start match' }))
 
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: 'Play' })).toBeInTheDocument()
+      expect(screen.getByRole('group', { name: 'This visit' })).toBeInTheDocument()
     })
     expect(posted).toEqual([
       {

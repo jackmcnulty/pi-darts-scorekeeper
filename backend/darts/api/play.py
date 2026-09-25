@@ -155,6 +155,10 @@ class TeamLegResponse(BaseModel):
     points: int
     #: Marks per target, keyed by number (15..20 and 25). None in an x01 leg.
     marks: dict[int, int] | None
+    #: This leg's 3-dart average for this team, computed as #19 computes one.
+    #: None before the team's first dart -- an average of no darts does not
+    #: exist, and 0 would read as a bad one -- and None throughout cricket.
+    three_dart_average: float | None
 
 
 class CheckoutResponse(BaseModel):

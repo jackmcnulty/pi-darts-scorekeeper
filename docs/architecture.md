@@ -841,3 +841,191 @@ The second is a development-time measurement rather than a committed test,
 because a committed one would mean a backend test file for a frontend ticket.
 The committed test is the transcription, and the transcription is the thing to
 re-read if the server's rules ever move.
+
+### x01 play screen (#24)
+
+`/play/:matchId` is the screen the whole app exists for. It renders and it
+posts, and that is all it does — which is possible because #18's play API is
+unusually generous.
+
+#### It is a rendering problem, not a game-logic one
+
+Every write returns the complete new `MatchStateResponse`, so a dart is one
+round trip and one repaint. The checkout paths, the bust and the score it
+reverted to, the thrower, both visits and the leg tally all arrive already
+decided. Three things the client conspicuously does **not** do:
+
+- **No checkout table.** `CheckoutResponse.paths` is best-first and already
+  accounts for the out-rule and the darts left in the visit, recomputed on
+  every response. So "the hint updates after every dart and respects both" is
+  discharged by rendering whatever the latest payload carried.
+- **No bust revert.** `score_after == score_before` on a bust *is* the revert,
+  and `caused_bust` names the dart. The screen draws a banner.
+- **No optimistic update and no patched state.** Mutations write the response
+  into the cache with `setQueryData` rather than invalidating, because the
+  authoritative answer is already in hand. A scoreboard repainted from two
+  responses can show a score from one and a thrower from the other.
+
+`play/x01.ts` and `play/keypad.ts` hold the decisions and `Play.tsx` renders
+them — the `setup/config.ts` split, for the same `react-refresh` reason and the
+same enumerability.
+
+#### Sixty-three throws, not sixty-two
+
+#24 said 62 twice, in an acceptance criterion and in a test requirement. The
+engine says 63 and `engine/throws.py` ends with a comment written specifically
+to pre-empt this off-by-one: 62 counts the board's *scoring* segments, which
+excludes the miss. A miss is a legal thing for a dart to do, `DartWrite` accepts
+`(0, 0)`, and #4's mockup gave it a key. The ticket was corrected to 63.
+
+#### The latch covers the numbers, and only the numbers
+
+The multiplier latch applies to the 20 numbered keys — 60 throws. 25, BULL and
+MISS are absolute: they post `(25,1)`, `(25,2)` and `(0,0)` whatever the latch
+says, and the latch still resets afterwards. There is no triple bull (`Throw`
+raises and `DartWrite` 422s on `(25,3)`), BULL already *is* the double of 25, so
+"double 25" would be a second spelling of an existing key, and a miss has no
+multiplier. Disabling them while latched was the alternative; it costs a tap and
+hides a third of the board behind a mode. Being absolute is what keeps all 63
+throws one tap away and makes an unsendable combination unreachable rather than
+merely refused.
+
+23 keys × 3 latch positions is 69 taps, of which the nine on the absolute keys
+collapse to three darts — 63.
+
+The latch resets to Single on the tap that *sends*, not on the response. A tap
+dropped by the in-flight guard never reaches the reset, so a suppressed tap
+cannot silently change what the next one means. While the latch is on, each
+numbered key captions itself with what it will actually post — "60" under the 20
+on Triple — which is the cheapest available guard against the mis-entry the
+resetting latch exists to prevent.
+
+#### Idempotency does not stop a double tap
+
+#24 asks that a double tap not submit two darts and attributes it to #15's
+`client_dart_id`. That is not what idempotency does: a fresh id per tap makes two
+taps two *different* darts, and the server records both, correctly. Nor can the
+two be told apart in general — T20-T20-T20 is the most common sequence in the
+game, so a time-based debounce would eat real throws.
+
+So the suppression is in the client: while a request is in flight, a tap on a
+throw key is ignored outright. On the LAN that window is a couple of
+milliseconds, which is why the keys are not greyed for it. The test asserts that
+**one request reached the server**, not merely that two ids matched.
+
+Where `client_dart_id` genuinely earns its keep is the retry. Mutations never
+retry automatically, because a dart whose request timed out may well have been
+recorded. A failed dart keeps its id, and "Try again" re-sends the identical
+body — which the server either records once or recognises and answers with the
+current state. A 4xx gets no retry button, because it will fail identically
+forever.
+
+#### The 402×874 criterion is verified by construction, not tested
+
+jsdom does no layout: `getBoundingClientRect` is uniformly zero, so any "not
+taller than 874px" assertion passes vacuously — against a screen 3000px tall as
+readily as this one. There is no viewport-test precedent in the repo and this
+ticket did not invent one.
+
+What the screen does instead is what #4's `mockup.css` does: `height: 100dvh;
+overflow: hidden`, with every row above the keypad `flex: none` and the keypad
+grid the single `flex: 1 1 auto`. A row that appears — the bust banner, the
+error strip — takes its height out of the keys, which stop shrinking at the 56px
+touch floor, at which point the overflow **clips visibly** instead of quietly
+becoming scrollable. A layout mistake is then something you can see rather than
+something you discover with three darts in your hand.
+
+`Play.test.tsx` asserts those declarations by parsing the stylesheet as text,
+which is the `tokens.test.ts` precedent and the only honest option: jsdom does
+not implement `env()` either, so `getComputedStyle` on a safe-area inset
+resolves to 0 and would pass against a rule with no padding at all. **The pixel
+fit is verified by construction and belongs to #32's device pass.**
+
+#### Two legs, one route, and the ends
+
+- **`active_leg`** is non-null for exactly one response in a match: the one
+  reporting a leg won, where `current_leg` is the leg just finished. The screen
+  prefers it, so the board rolls straight on and the win shows up in the tally.
+  #26 owns the interstitial that stops to say who won it.
+- **Undo addresses the leg that has a last dart**, which at a leg boundary is
+  the *won* leg rather than the empty one opened behind it. `play.undo` supports
+  exactly that — it reopens the leg, closes the empty one and unwins the match
+  if that leg decided it — and refuses only when a *later* leg has been thrown
+  into. Undo therefore stays available on a won match, which is the only way to
+  fix a mis-entered winning dart, even though darts are refused.
+- **A cricket match gets a notice naming #25**, not this board and not a crash.
+  `/play/:matchId` serves both game types and #23 will happily start a cricket
+  match and navigate here today.
+
+#### The three-dart average came from the server
+
+#4's mockup renders an average on each `ScoreCard` and no play payload carried
+one. Deriving it in the client would have put a second definition of a statistic
+#19 already owns next to the one on the history screen, where the two would
+eventually disagree — so `TeamLegResponse` was widened instead.
+
+It is #19's arithmetic exactly: `3 × sum(counted × score) / darts`, from
+`stats/sql/x01.sql`, and #19's rule for an empty one — a count of nothing is 0,
+an average of nothing is `None`. A busted visit therefore scores nothing while
+its darts still cost their place in the denominator, which is the case a client
+computing `(start − remaining) / darts × 3` would get wrong.
+
+Two scopes differ from `x01_totals`, because a live scoreboard is not a player's
+record. It is per *team*, since that is what a `ScoreCard` is, and it pools both
+members in a 2v2. And it is per *leg*, matching the `remaining` it sits beside —
+which also means it needs nothing beyond the replay `play._project` has already
+done, rather than a new query on the hot path of every dart. It is computed in
+the projection and kept off `TeamCache`, so `leg_team_state` and #13's verify
+pass over it are unchanged and no migration was needed.
+
+#### Who a 2v2 card names
+
+`ScoreCard` has one name slot, `MemberResponse` still has no `short_name` (#22
+flagged that widening and it is open), `TeamResponse.name` is nullable and #23
+never sets it — and two unbounded display names will not fit beside a 60px
+score. So the card leads with whoever is actually at the oche, which is the
+thing the screen exists to say, and puts the rest of the team on the second line
+where it can ellipsize. A team whose turn it is not leads with its first member.
+
+#### The keypad is a component because #25 is built on it
+
+#25's scope is literally "the cricket board, reusing the keypad from #24", so
+the keypad has its own props and its own tests rather than being markup inside
+this screen. `KeypadKey.segment` is the hook it needs: cricket dims the numbers
+outside 15–20 and 25 while leaving them enterable, because a dart that lands on
+7 still happened. `ScoreCard` now takes `score: number | null` for the same
+reason — a cricket team has marks where a score would be.
+
+#### The wake lock is re-acquired, not just requested
+
+`navigator.wakeLock` is typed non-optional in `lib.dom.d.ts` but is absent in
+jsdom, on older iOS, and — the one that matters — outside a secure context,
+which is what the Pi serves on the LAN. The feature test is load-bearing rather
+than defensive.
+
+The browser also releases the lock whenever the page stops being visible and
+never gives it back. Without the `visibilitychange` re-acquire the screen would
+stay awake until the first time anybody glanced at another app and never again
+for the rest of the match — a failure that looks exactly like the feature was
+never wired up, and one that a test asserting `request` was called once cannot
+see.
+
+#### The 63 throws were measured against the server's own validator
+
+"All 63 legal throws are reachable from the keypad" is a claim about all of
+them. It was checked two ways:
+
+1. `play/keypad.test.ts` walks all 69 (key, latch) pairs and asserts the
+   distinct darts equal the 63 built from the board; `routes/Play.test.tsx`
+   drives the same 69 taps through the real keypad and asserts on the 69 bodies
+   that reached the wire. These are the committed tests.
+2. The same 69 bodies were dumped and fed through the real
+   `DartWrite.model_validate`. All 69 were accepted, 0 rejected, and the set of
+   distinct throws was *identical* to `engine.throws.ALL_THROWS` — neither a
+   throw missing nor one the board does not have. Positive controls confirmed the
+   validator still refused `(25, 3)`, `(0, 1)`, segment 21 and a blank
+   `client_dart_id`.
+
+The second is a development-time measurement rather than a committed test, for
+#23's reason: a committed one would mean a backend test file for a frontend
+ticket.

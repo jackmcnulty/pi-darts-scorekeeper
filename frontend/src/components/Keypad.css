@@ -1,0 +1,49 @@
+/* Lifted from #4's approved X01Mockup.css, which is the layout this keypad was
+ * designed as. The grid is the only thing on the screen that grows: everything
+ * above it is a fixed row, so the keys absorb whatever height is left over and
+ * the screen fits its budget without a media query. */
+
+.keypad__multiplier {
+  flex: none;
+}
+
+/* 5 x 4. Keys stretch to fill the leftover height but never go below the 56px
+ * touch floor, which is what makes the overflow visible rather than silent if
+ * a future row is added above. */
+.keypad__grid {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  grid-auto-rows: minmax(var(--touch-min), 1fr);
+  gap: var(--space-2);
+  min-height: 0;
+}
+
+/* 25, BULL, MISS and a double-width UNDO: five columns, matching the grid. */
+.keypad__actions {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+/* #25's non-targets. Dim, but not disabled: a dart that lands on 7 in a cricket
+ * leg still happened and still has to be enterable. Opacity alone would read as
+ * disabled, so the number keeps full contrast against a recessed key. */
+.keypad__grid .key[data-dimmed='true'],
+.keypad__actions .key[data-dimmed='true'] {
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+}
+
+/* A double tap must not zoom the page. `touch-action: manipulation` drops the
+ * 300ms double-tap-to-zoom gesture on the keys themselves, which is the half of
+ * #24's double-tap criterion that is a CSS problem; the other half -- not
+ * sending two darts -- is the in-flight guard in Play.tsx. */
+.keypad__grid .key,
+.keypad__actions .key {
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
