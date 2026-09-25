@@ -468,12 +468,28 @@ Three reads, all taking `?game_type=&variant=&since=&match_id=`:
 
 | Route | Returns |
 | --- | --- |
-| `GET /api/stats/players/{id}` | `PlayerReportResponse` — lifetime, within the filter |
-| `GET /api/stats/leaderboard` | `LeaderboardResponse` — ranked, plus `?min_darts=` |
+| `GET /api/stats/players/{id}` | `PlayerReportResponse` — lifetime, within the filter, plus `?last_matches=` |
+| `GET /api/stats/leaderboard` | `LeaderboardResponse` — ranked, plus `?min_darts=` and `?last_matches=` |
 | `GET /api/stats/matches/{id}` | `MatchReportResponse` — per player and per leg |
 
 The metric definitions and the reason the scope is composed rather than bound
 live in [data-model.md](data-model.md#statistics-queries); this is the wiring.
+
+`?last_matches=` was added by #27 and is **each player's own last N matches**, so
+it means the same thing on a one-player report and down a leaderboard column,
+where it makes a form table. It is a `WindowedFilter` subclass rather than a fifth
+field on `Filter`, because `Filter` is also #20's export filter and the exports
+have no window; widening the base would have added a parameter to `/api/export`
+that nothing there implements. The two windowed endpoints echo a
+`WindowedFilterResponse` and the other two still echo `FilterResponse`.
+
+The echo reports the window *asked for*, not the one found: a request for ten
+matches from a player who has played six echoes ten, while `matches_played` on the
+same response says six. A screen labels its column from the latter, because "last
+6 matches" is true where "last 10 matches" over six is not. The window is refused
+on `/matches/{id}` — that report is already one match, so there is no window to
+choose, and `extra="forbid"` makes asking a 422 rather than a parameter that looks
+accepted and quietly does nothing.
 
 `darts.stats` is a query layer beside `darts.repo`, not above it: `queries.py`
 loads and binds the packaged SQL, `report.py` assembles rows into frozen

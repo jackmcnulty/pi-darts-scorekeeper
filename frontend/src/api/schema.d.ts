@@ -419,6 +419,11 @@ export interface paths {
      *     Archived players are left off, following #17's pickers: a leaderboard is a
      *     thing you are currently on. They keep every other statistic, and their own
      *     endpoint still answers.
+     *
+     *     `?last_matches=` turns this into a form table. The window is per player, so
+     *     every row covers the same number of that player's matches and the ranking
+     *     stays a comparison; a window over whichever matches happened most recently
+     *     would instead rank whoever turned up to them.
      */
     get: operations['leaderboard_api_stats_leaderboard_get']
     put?: never
@@ -464,6 +469,10 @@ export interface paths {
     /**
      * Player Stats
      * @description One player. A player who has never thrown gets zeroes and nulls, not a 404.
+     *
+     *     `?last_matches=` is #27's "recent": the same report over the player's own last
+     *     N matches, which is what makes a recent average comparable to the lifetime one
+     *     beside it -- both are this endpoint, asked twice.
      */
     get: operations['player_stats_api_stats_players__player_id__get']
     put?: never
@@ -701,7 +710,7 @@ export interface components {
     }
     /** LeaderboardResponse */
     LeaderboardResponse: {
-      filter: components['schemas']['FilterResponse']
+      filter: components['schemas']['WindowedFilterResponse']
       /** Min Darts */
       min_darts: number
       /**
@@ -909,7 +918,7 @@ export interface components {
       'not_x01' | 'leg_complete' | 'match_abandoned' | 'no_thrower' | 'not_open' | 'not_checkable'
     /** PlayerReportResponse */
     PlayerReportResponse: {
-      filter: components['schemas']['FilterResponse']
+      filter: components['schemas']['WindowedFilterResponse']
       player: components['schemas']['PlayerStatsResponse']
     }
     /** PlayerResponse */
@@ -1145,6 +1154,26 @@ export interface components {
       visit_id: number
       /** Visit Index */
       visit_index: number
+    }
+    /**
+     * WindowedFilterResponse
+     * @description The same, plus the window, for the two endpoints that accept one.
+     *
+     *     The window is echoed as *asked for*, not as found: a request for ten matches
+     *     by a player who has played six echoes ten. What the report actually covers is
+     *     `matches_played`, which the same response carries, and that is the number a
+     *     screen should put in front of a reader -- "last 6 matches" is true where
+     *     "last 10 matches" over six would not be.
+     */
+    WindowedFilterResponse: {
+      game_type: components['schemas']['GameType'] | null
+      /** Last Matches */
+      last_matches: number | null
+      /** Match Id */
+      match_id: number | null
+      /** Since */
+      since: string | null
+      variant: components['schemas']['Variant'] | null
     }
     /** X01Response */
     X01Response: {
@@ -1979,6 +2008,7 @@ export interface operations {
         variant?: components['schemas']['Variant'] | null
         since?: string | null
         match_id?: number | null
+        last_matches?: number | null
         min_darts?: number
       }
       header?: never
@@ -2068,6 +2098,7 @@ export interface operations {
         variant?: components['schemas']['Variant'] | null
         since?: string | null
         match_id?: number | null
+        last_matches?: number | null
       }
       header?: never
       path: {

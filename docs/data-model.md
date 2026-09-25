@@ -389,6 +389,7 @@ visit is already per player.
 | Per-target hit rate | Darts on that target over *every* cricket dart in scope, misses included. |
 | Legs and matches won | Team outcomes, credited to every member of the winning team, and the documented exception to the identical-darts criterion. Read from `v_leg_players` / `v_match_players`, so a partner who threw no darts is still credited. |
 | `?since=` | Compared against the match's `created_at`, so a match is never split across the boundary. |
+| `?last_matches=` | **Each player's own** last N matches, added by #27 for "recent form". Drawn from `v_match_players`, so a match a 2v2 partner sat out still counts as one they played. Composes with `?since=` rather than overriding it. |
 | Nothing to report | A count is 0; an average is null. |
 
 ### Why the scope is composed rather than bound
@@ -407,6 +408,30 @@ file is still valid SQL that runs unscoped in a shell.
 `GROUP BY`, so it cannot be flattened into a caller and a `WHERE` may not reach
 the rows underneath; aggregating `v_darts` per visit gives the same answers and
 keeps the index seek.
+
+### The one predicate that is not a column comparison
+
+`?last_matches=` is a per-player top-N, so it is spelled
+`(player_id, match_id) IN (…)` over a list of pairs rather than
+`match_id IN (…)` over a list of matches. The flat form cannot express "each
+player's own last ten": it would credit one player with another's window, which
+on a leaderboard means ranking whoever happened to play in the most recent games
+instead of comparing everybody over the same number of their own.
+
+The pairs are ranked once with `ROW_NUMBER() OVER (PARTITION BY player_id)` and
+probed by the outer query, which plans as a `LIST SUBQUERY` — built one time,
+however many darts it then filters. The correlated spelling is the trap here, the
+same shape as the bound-parameter trap above: correlating on the outer alias makes
+SQLite re-rank a player's matches once per candidate *dart*. Measured over 50,000
+darts, the composed form costs 0.10–0.50 ms for a player card and 3.6 ms for a
+leaderboard, against 24 ms for the unwindowed leaderboard it narrows.
+
+The window inherits every *other* bound predicate, so `?game_type=x01&last_matches=10`
+is the last ten x01 matches and not the x01 subset of the last ten matches — the
+latter would report a window of ten and average two matches' darts. It lives in
+`queries.py` rather than in `sql/`, where `tests/db/test_view_bypass.py` cannot
+see it, so `tests/stats/test_recent_window.py` asserts it reads `v_match_players`
+and no base table.
 
 ## The published CSV exports
 
