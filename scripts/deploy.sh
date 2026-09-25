@@ -55,6 +55,8 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 . "${script_dir}/lib.sh"
 # shellcheck source=scripts/deploy-lib.sh
 . "${script_dir}/deploy-lib.sh"
+# shellcheck source=scripts/deploy-remote.sh
+. "${script_dir}/deploy-remote.sh"
 
 HOST="${DARTS_DEPLOY_HOST:-}"
 SSH_CONFIG="${DARTS_SSH_CONFIG:-}"
@@ -172,41 +174,14 @@ export DRY_RUN
 
 cd -- "$repo_root"
 
-# --- Talking to the target --------------------------------------------------
+remote_init
 
-# BatchMode: a deploy must fail on a missing key rather than block forever on a
-# passphrase prompt at step 6 of 9.
-SSH_OPTS=(-o BatchMode=yes)
 HEALTH_ARGS=(--host "$HOST" --port "$PORT")
 if [ -n "$SSH_CONFIG" ]; then
-  SSH_OPTS=(-F "$SSH_CONFIG" -o BatchMode=yes)
   HEALTH_ARGS+=(--ssh-config "$SSH_CONFIG")
 fi
 
-# Named wrappers rather than inline ssh, so that `run on_target docker ...`
-# produces a --dry-run plan line that reads like the thing it will do.
-on_target() {
-  # ssh joins its arguments into one string and the remote shell re-parses it.
-  # That is relied on deliberately -- several commands here carry pipes and
-  # redirections -- and every value interpolated into them is a git sha or a
-  # path this script produced, not anything that came from the target.
-  # shellcheck disable=SC2029
-  ssh "${SSH_OPTS[@]}" "$HOST" "$@"
-}
-
-copy_to_target() {
-  local src="$1" dest="$2"
-  scp "${SSH_OPTS[@]}" -- "$src" "${HOST}:${dest}"
-}
-
-# A read-only query. Deliberately *not* routed through `run`: queries have to
-# actually execute for the script to make decisions, and in --dry-run they are
-# skipped entirely rather than run against a target that may not exist. The
-# placeholders that stand in for their answers are the same trick
-# bootstrap-pi.sh uses when `dpkg` is absent.
-query_target() {
-  on_target "$@" 2>/dev/null
-}
+# --- Talking to the target --------------------------------------------------
 
 # The slowest step of a deploy by a wide margin, and deliberately *not* piped
 # through gzip.
@@ -324,9 +299,6 @@ run_tests() {
 
 # --- The deploy -------------------------------------------------------------
 
-# The label is not decoration; see list_remote_tags for why it has to exist.
-BUILT_AT_LABEL="org.darts.built-at"
-
 build_image() {
   run docker build \
     -f "${repo_root}/deploy/Dockerfile" \
@@ -360,36 +332,10 @@ read_running_sha() {
 
 # Sha tags present on the target, most recently built first.
 #
-# The obvious implementation -- `docker image ls`, which sorts by creation
-# descending -- does not work, and the way it fails is silent. Measured on
-# Engine 29.5.2: seven distinct darts images, built from four different commits
-# over twenty minutes, all reported `Created` as
-# 2026-09-25T12:34:10.61878831-04:00. BuildKit takes the config timestamp from
-# the cached parent rather than from when the image was assembled, so once the
-# layer cache is warm every build claims the same instant. Sorting by it gives
-# an arbitrary order that *looks* chronological.
-#
-# So build order is recorded explicitly, as a label this script sets at build
-# time. A label lives in the image config, which means it survives
-# `docker save` / `docker load` and describes the artefact rather than the host
-# it happens to be sitting on -- unlike a deploy log on the target, which would
-# be one more piece of state that has to stay correct for a rollback to work.
-#
-# The label is read back by image id and joined on it, rather than relying on
-# `docker image inspect` emitting one line per argument in argument order. It
-# does not do that, in two ways that were both measured here: given an image
-# whose config carries no `Labels` key at all, `{{index .Config.Labels "x"}}`
-# raises a template error, writes it to stderr, and emits *no line* for that
-# image; and the surviving lines come back in an order of their own, not the
-# order asked for. Pairing by position therefore silently attributes one
-# image's build time to another. Hence `{{with index .Config "Labels"}}`, which
-# tolerates the missing key, and an explicit join on `{{.Id}}`.
-#
-# Images with no label sort last, which is right: they predate this and are
-# therefore older than anything that has one.
-#
-# `latest` is filtered out because it is an alias for one of these, not a
-# further image.
+# The two queries are here; the ordering they feed is in scripts/deploy-lib.sh,
+# where it is unit-tested, because both of the obvious ways to derive this order
+# are wrong in ways that fail silently. See order_tags_by_stamp for the
+# measurements.
 list_remote_tags() {
   if [ "$DRY_RUN" = "1" ]; then
     REMOTE_TAGS=""
@@ -397,43 +343,7 @@ list_remote_tags() {
     return 0
   fi
 
-  # "<tag> <full image id>", one per line, `latest` dropped.
-  local pairs=""
-  pairs="$(
-    query_target "docker image ls 'darts' --no-trunc --format '{{.Tag}} {{.ID}}'" |
-      grep -v -e '^latest ' -e '^<none> ' || true
-  )"
-
-  if [ -z "$pairs" ]; then
-    REMOTE_TAGS=""
-    return 0
-  fi
-
-  local refs="" tag="" id=""
-  while IFS=' ' read -r tag id; do
-    [ -n "$id" ] || continue
-    refs="${refs} ${id}"
-  done <<<"$pairs"
-
-  # "<full image id> <build stamp or nothing>", one per line.
-  local stamps=""
-  stamps="$(
-    query_target "docker image inspect --format '{{.Id}} {{with index .Config \"Labels\"}}{{index . \"${BUILT_AT_LABEL}\"}}{{end}}'${refs}"
-  )" || stamps=""
-
-  # Join on the id, then sort by stamp descending. A missing or non-numeric
-  # stamp becomes 0 so it sorts last rather than aborting the sort.
-  local combined="" stamp=""
-  while IFS=' ' read -r tag id; do
-    [ -n "$tag" ] || continue
-    stamp="$(printf '%s\n' "$stamps" | awk -v want="$id" '$1 == want { print $2; exit }')"
-    case "$stamp" in
-      '' | *[!0-9]*) stamp=0 ;;
-    esac
-    combined="${combined}${stamp} ${tag}"$'\n'
-  done <<<"$pairs"
-
-  REMOTE_TAGS="$(printf '%s' "$combined" | sort -k1,1rn | awk '{ print $2 }')"
+  REMOTE_TAGS="$(order_tags_by_stamp "$(remote_tag_ids)" "$(remote_build_stamps)")"
 }
 
 transfer_image() {

@@ -59,6 +59,80 @@ def pruned(keep: int, protected: str, *available: str) -> list[str]:
     return call("tags_to_prune", str(keep), protected, *available)
 
 
+def ordered(pairs: str, stamps: str) -> list[str]:
+    return call("order_tags_by_stamp", pairs, stamps)
+
+
+# --- Build ordering --------------------------------------------------------
+#
+# Both inputs are real docker output shapes. The cases below are the two ways
+# the obvious implementations failed when this ran against a live daemon, plus
+# the ties and gaps that follow from them.
+
+
+def test_tags_come_back_newest_first() -> None:
+    pairs = "new sha256:aaa\nold sha256:bbb\nmid sha256:ccc"
+    stamps = "sha256:aaa 300\nsha256:bbb 100\nsha256:ccc 200"
+    assert ordered(pairs, stamps) == ["new", "mid", "old"]
+
+
+def test_the_stamp_is_joined_by_id_not_by_position() -> None:
+    """The bug that made this a tested function.
+
+    `docker image inspect` does not emit one line per argument in argument
+    order. Measured against Engine 29.5.2: seven images in, three lines out,
+    and the third line belonged to the fourth argument. Here the stamp lines
+    are deliberately in a different order from the tags, and a positional
+    implementation would report `first` as the newest.
+    """
+    pairs = "first sha256:aaa\nsecond sha256:bbb\nthird sha256:ccc"
+    stamps = "sha256:ccc 900\nsha256:aaa 100\nsha256:bbb 500"
+    assert ordered(pairs, stamps) == ["third", "second", "first"]
+
+
+def test_an_image_with_no_stamp_sorts_last() -> None:
+    """Images built before the label existed. They are older by definition, and
+    `docker image inspect` emits no line at all for them."""
+    pairs = "labelled sha256:aaa\nlegacy sha256:bbb"
+    stamps = "sha256:aaa 100"
+    assert ordered(pairs, stamps) == ["labelled", "legacy"]
+
+
+def test_a_non_numeric_stamp_does_not_break_the_sort() -> None:
+    """`<no value>` is what a Go template can yield for a missing key, and it
+    must not end up compared numerically against a real timestamp."""
+    pairs = "good sha256:aaa\nodd sha256:bbb"
+    stamps = "sha256:aaa 100\nsha256:bbb <no value>"
+    assert ordered(pairs, stamps) == ["good", "odd"]
+
+
+def test_latest_is_not_a_separate_image() -> None:
+    """`latest` is an alias for whichever sha is live, not a sixth image, so it
+    must never occupy a slot in the prune budget or be offered as a rollback."""
+    pairs = "latest sha256:aaa\nabc123 sha256:aaa\nold sha256:bbb"
+    stamps = "sha256:aaa 200\nsha256:bbb 100"
+    assert ordered(pairs, stamps) == ["abc123", "old"]
+
+
+def test_dangling_images_are_ignored() -> None:
+    pairs = "<none> sha256:aaa\nabc123 sha256:bbb"
+    stamps = "sha256:aaa 200\nsha256:bbb 100"
+    assert ordered(pairs, stamps) == ["abc123"]
+
+
+def test_no_images_is_not_an_error() -> None:
+    """A first-ever deploy. The caller must get an empty list, not a failure."""
+    assert ordered("", "") == []
+
+
+def test_identical_stamps_still_return_every_tag() -> None:
+    """Ties are possible and must not drop anything -- which is the state
+    `docker image ls` reports for *every* image once the layer cache is warm."""
+    pairs = "a sha256:aaa\nb sha256:bbb\nc sha256:ccc"
+    stamps = "sha256:aaa 100\nsha256:bbb 100\nsha256:ccc 100"
+    assert sorted(ordered(pairs, stamps)) == ["a", "b", "c"]
+
+
 # --- Rollback selection ----------------------------------------------------
 
 

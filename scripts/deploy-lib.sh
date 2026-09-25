@@ -20,6 +20,17 @@
 
 # shellcheck shell=bash
 
+#: The image label deploy.sh stamps at build time and orders by. A label rather
+#: than a file on the target: it lives in the image config, so it survives
+#: `docker save` / `docker load` and describes the artefact rather than the host
+#: it happens to be sitting on. A deploy log on the Pi would be one more piece
+#: of state that has to stay correct for a rollback to work.
+#:
+# Read by deploy.sh (which sets it) and deploy-remote.sh (which reads it back),
+# neither of which shellcheck can see from here.
+# shellcheck disable=SC2034
+BUILT_AT_LABEL="org.darts.built-at"
+
 # Which image tag should a failed deploy of $new_sha return to?
 #
 #   select_rollback_tag <new_sha> <running_sha> [available_sha...]
@@ -57,6 +68,53 @@ select_rollback_tag() {
       return 0
     fi
   done
+}
+
+# Put image tags in build order, newest first.
+#
+#   order_tags_by_stamp "<tag> <id>..." "<id> <stamp>..."
+#
+# Both arguments are multi-line strings straight out of docker on the target:
+# `docker image ls --no-trunc --format '{{.Tag}} {{.ID}}'` and
+# `docker image inspect --format '{{.Id}} {{...built-at label...}}'`.
+#
+# This is here, rather than inline in the two scripts that need it, because the
+# obvious ways to do it are both wrong and both fail quietly.
+#
+# Sorting by `docker image ls` order does not work: it sorts by the image's
+# Created timestamp, and BuildKit copies that from the cached parent rather than
+# setting it when the image is assembled. Measured on Engine 29.5.2, seven
+# distinct images built from four commits over twenty minutes all reported
+# Created as 2026-09-25T12:34:10.61878831-04:00. The sort is then arbitrary
+# while looking chronological.
+#
+# Pairing the labels to the tags by position does not work either, because
+# `docker image inspect` does not emit one line per argument in argument order.
+# Given an image whose config has no `Labels` key, the template errors to stderr
+# and emits nothing for it; the lines that do come back are in an order of their
+# own. Measured: seven images in, three lines out, the third belonging to the
+# fourth argument. So the join is on the image id, explicitly.
+#
+# A tag whose stamp is missing or non-numeric sorts last, which is correct: it
+# was built before the label existed, so it is older than anything carrying one.
+order_tags_by_stamp() {
+  local pairs="$1" stamps="$2"
+  local tag="" id="" stamp="" combined=""
+
+  while IFS=' ' read -r tag id; do
+    [ -n "$tag" ] || continue
+    case "$tag" in
+      latest | '<none>') continue ;;
+    esac
+    stamp="$(printf '%s\n' "$stamps" | awk -v want="$id" '$1 == want { print $2; exit }')"
+    case "$stamp" in
+      '' | *[!0-9]*) stamp=0 ;;
+    esac
+    combined="${combined}${stamp} ${tag}"$'\n'
+  done <<<"$pairs"
+
+  [ -n "$combined" ] || return 0
+  printf '%s' "$combined" | sort -k1,1rn | awk '{ print $2 }'
 }
 
 # Which image tags should be deleted to get down to $keep?

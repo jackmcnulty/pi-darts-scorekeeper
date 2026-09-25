@@ -29,6 +29,8 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 . "${script_dir}/lib.sh"
 # shellcheck source=scripts/deploy-lib.sh
 . "${script_dir}/deploy-lib.sh"
+# shellcheck source=scripts/deploy-remote.sh
+. "${script_dir}/deploy-remote.sh"
 
 HOST="${DARTS_DEPLOY_HOST:-}"
 SSH_CONFIG="${DARTS_SSH_CONFIG:-}"
@@ -117,30 +119,22 @@ export DRY_RUN
 
 require_cmd ssh
 
-SSH_OPTS=(-o BatchMode=yes)
+remote_init
+
 HEALTH_ARGS=(--host "$HOST" --port "$PORT")
 if [ -n "$SSH_CONFIG" ]; then
-  SSH_OPTS=(-F "$SSH_CONFIG" -o BatchMode=yes)
   HEALTH_ARGS+=(--ssh-config "$SSH_CONFIG")
 fi
 
-on_target() {
-  # See the same wrapper in deploy.sh: the remote shell re-parsing these is
-  # deliberate, and everything interpolated is a sha or a path from this script.
-  # shellcheck disable=SC2029
-  ssh "${SSH_OPTS[@]}" "$HOST" "$@"
-}
-
+# The same ordering deploy.sh uses, so that "the previous sha" means one thing
+# across both scripts rather than two things that usually agree.
 list_remote_tags() {
   if [ "$DRY_RUN" = "1" ]; then
     REMOTE_TAGS=""
-    printf 'plan: list darts:* image tags on the target, newest first\n'
+    printf 'plan: list darts:* image tags on the target, most recently built first\n'
     return 0
   fi
-  REMOTE_TAGS="$(
-    on_target "docker image ls 'darts' --format '{{.Tag}}'" 2>/dev/null |
-      grep -v -e '^latest$' -e '^<none>$' || true
-  )"
+  REMOTE_TAGS="$(order_tags_by_stamp "$(remote_tag_ids)" "$(remote_build_stamps)")"
 }
 
 running_sha() {
