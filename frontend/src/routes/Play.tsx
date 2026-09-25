@@ -16,9 +16,11 @@
  * One route, two games
  * --------------------
  * `/play/:matchId` serves both game types, because a match knows which it is
- * and the player only ever taps "play". #25 owns the cricket board, so a
- * cricket match gets a named notice rather than this board or a crash -- #23
- * will happily start one and navigate here today.
+ * and the player only ever taps "play". This file owns the x01 board and
+ * everything neither board can differ on -- the match id, the loading and error
+ * states, the wake lock, the three hooks -- and hands a cricket match to
+ * #25's `CricketBoard`. Both draw inside the same `PlayFrame`, which is the
+ * fixed-height shell the whole screen budget depends on.
  *
  * Why a second tap is dropped
  * ---------------------------
@@ -44,23 +46,20 @@ import { Button } from '../components/Button'
 import { Keypad } from '../components/Keypad'
 import { ScoreCard } from '../components/ScoreCard'
 import { DEFAULT_MULTIPLIER, dartFor, type KeypadKey, type Multiplier } from '../play/keypad'
-import { useWakeLock } from '../play/wakeLock'
 import {
-  bustOf,
   canUndo,
-  cardLabel,
-  checkoutText,
-  contextLine,
   isPlayable,
   legInPlay,
   legToUndo,
   mintDartId,
   refusalText,
   shownVisit,
-  teamCards,
-  visitTotal,
   VISIT_SIZE,
-} from '../play/x01'
+} from '../play/leg'
+import { useWakeLock } from '../play/wakeLock'
+import { bustOf, cardLabel, checkoutText, contextLine, teamCards, visitTotal } from '../play/x01'
+import { CricketBoard } from './CricketBoard'
+import { PlayFrame } from './PlayFrame'
 import './Play.css'
 
 export function Play() {
@@ -84,45 +83,50 @@ export function Play() {
 
   if (matchId === null) {
     return (
-      <Frame>
+      <PlayFrame>
         <p className="play__note">
           That is not a match. <Link to="/">Back to the start</Link>
         </p>
-      </Frame>
+      </PlayFrame>
     )
   }
 
   if (state.isPending) {
     return (
-      <Frame>
+      <PlayFrame>
         <p className="play__note">Reading the scoreboard&hellip;</p>
-      </Frame>
+      </PlayFrame>
     )
   }
 
   if (state.isError) {
     return (
-      <Frame>
+      <PlayFrame>
         <div className="play__note" role="alert">
           <p>{state.error.message}</p>
           <Button variant="secondary" onClick={() => void state.refetch()}>
             Try again
           </Button>
         </div>
-      </Frame>
+      </PlayFrame>
     )
   }
 
   if (match === undefined) return null
 
-  if (match.config.game_type !== 'x01') {
+  // Two boards, one route. The match knows which game it is and the player only
+  // ever taps "play"; everything above this line -- the id check, the loading
+  // and error states, the wake lock, the three hooks -- is the same either way,
+  // so the split is here rather than at the router.
+  if (match.config.game_type === 'cricket') {
     return (
-      <Frame>
-        <p className="play__note">
-          This is a cricket match, and the cricket board is still to come in #25.{' '}
-          <Link to="/">Back to the start</Link>
-        </p>
-      </Frame>
+      <CricketBoard
+        match={match}
+        latch={latch}
+        onLatchChange={setLatch}
+        recordDart={recordDart}
+        undoDart={undoDart}
+      />
     )
   }
 
@@ -170,7 +174,7 @@ export function Play() {
   }
 
   return (
-    <Frame context={contextLine(match, leg)}>
+    <PlayFrame context={contextLine(match, leg)}>
       <div className="play__cards">
         {cards.map((card) => (
           <ScoreCard
@@ -257,34 +261,6 @@ export function Play() {
         disabled={busy || !playable}
         undoDisabled={busy || !canUndo(match)}
       />
-    </Frame>
-  )
-}
-
-/**
- * The non-scrolling frame, copied from #4's approved mockup shell.
- *
- * `height: 100dvh; overflow: hidden` is the load-bearing pair and the reason it
- * is a component: every state this screen can be in -- loading, refused, a
- * cricket match, the board itself -- has to sit inside the same fixed height, or
- * the one that overflows is the one nobody tested. Overflow clips visibly here
- * instead of quietly turning into a scroll, which is what makes a layout
- * mistake something you can see rather than something you can only feel on a
- * phone at a board. See `Play.css`.
- */
-function Frame({ context, children }: { context?: string; children: React.ReactNode }) {
-  return (
-    <div className="play">
-      <div className="play__topbar">
-        {/* Standalone mode has no browser chrome, so there is no back gesture
-            out of here. #23 added the same link to /setup for the same reason. */}
-        <Link className="play__back" to="/" aria-label="Back to home">
-          ‹
-        </Link>
-        <span className="play__context tnum">{context ?? 'Match'}</span>
-        <span className="play__topbar-spacer" />
-      </div>
-      {children}
-    </div>
+    </PlayFrame>
   )
 }

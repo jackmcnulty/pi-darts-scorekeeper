@@ -115,6 +115,17 @@ export interface LegOptions {
   legIndex?: number
   /** x01 remaining, positional to the teams. */
   remaining?: [number, number]
+  /**
+   * Cricket marks, positional to the teams, as `target -> marks`.
+   *
+   * Passing this makes the leg a cricket leg: `remaining` and `is_open` go null,
+   * the way the server sends them for cricket, so a fixture cannot describe a
+   * leg that is somehow both games at once. Targets left out are targets nobody
+   * has hit, which the server also omits rather than sending as zero.
+   */
+  marks?: [Record<number, number>, Record<number, number>]
+  /** Cricket points, positional to the teams. */
+  points?: [number, number]
   /** Three-dart averages, positional to the teams. Null is "has not thrown". */
   averages?: [number | null, number | null]
   /** Darts thrown, positional to the teams. */
@@ -138,6 +149,8 @@ export function leg(options: LegOptions = {}): LegState {
     legId = 7,
     legIndex = 0,
     remaining = [501, 501],
+    marks,
+    points = [0, 0],
     averages = [null, null],
     teamDarts = [0, 0],
     thrower = 0,
@@ -154,14 +167,29 @@ export function leg(options: LegOptions = {}): LegState {
   const throwingTeam = thrower === null ? null : teams[thrower]
   const throwingMember = throwingTeam?.members[throwerMember]
 
+  // A cricket leg exactly when marks were asked for. The server fills one pair
+  // of fields or the other and nulls the rest; mirroring that here is what stops
+  // a fixture describing a response the Pi would never send.
+  const isCricket = marks !== undefined
+
   const legTeams: TeamLeg[] = teams.map((entry, index) => ({
     team_id: entry.id,
-    remaining: remaining[index] ?? 501,
-    is_open: true,
+    remaining: isCricket ? null : (remaining[index] ?? 501),
+    is_open: isCricket ? null : true,
     darts_thrown: teamDarts[index] ?? 0,
-    points: 0,
-    marks: null,
-    three_dart_average: averages[index] ?? null,
+    points: points[index] ?? 0,
+    // `dict[int, int]` serialises with string keys -- the wire really carries
+    // `{"marks":{"20":3}}` -- so the fixture builds string keys too rather than
+    // relying on a numeric index happening to work at runtime.
+    marks:
+      marks === undefined
+        ? null
+        : Object.fromEntries(
+            Object.entries(marks[index] ?? {}).map(([target, held]) => [String(target), held]),
+          ),
+    // Null throughout cricket, which is scored by marks per round rather than
+    // by an average. #24 added the field and returns null for exactly this.
+    three_dart_average: isCricket ? null : (averages[index] ?? null),
   }))
 
   return {
@@ -186,12 +214,14 @@ export function leg(options: LegOptions = {}): LegState {
     checkout: {
       team_id: throwingTeam?.id ?? null,
       player_id: throwingMember?.player_id ?? null,
-      remaining: thrower === null ? null : (remaining[thrower] ?? null),
+      remaining: isCricket || thrower === null ? null : (remaining[thrower] ?? null),
       darts_left: currentVisit === null ? 3 : 3 - currentVisit.darts.length,
-      paths: checkoutPaths,
+      // `hints.for_leg` returns no paths and `not_x01` for every cricket leg --
+      // there is no checkout to draw on that board.
+      paths: isCricket ? [] : checkoutPaths,
       // The server's invariant: `reason` is set exactly when `paths` is empty,
       // so the fixture cannot describe a response that breaks it.
-      reason: checkoutPaths.length > 0 ? null : checkoutReason,
+      reason: isCricket ? 'not_x01' : checkoutPaths.length > 0 ? null : checkoutReason,
     },
   }
 }
@@ -201,6 +231,8 @@ export interface MatchStateOptions extends LegOptions {
   startScore?: number
   bestOf?: number
   gameType?: 'x01' | 'cricket'
+  /** Which cricket. Ignored for an x01 match, as the server ignores it. */
+  variant?: 'standard' | 'cutthroat' | 'quick'
   status?: MatchState['status']
   legsWon?: [number, number]
   winner?: number | null
@@ -219,6 +251,7 @@ export function matchState(options: MatchStateOptions = {}): MatchState {
     startScore = 501,
     bestOf = 3,
     gameType = 'x01',
+    variant = 'standard',
     status = 'in_progress',
     legsWon = [0, 0],
     winner = null,
@@ -227,7 +260,15 @@ export function matchState(options: MatchStateOptions = {}): MatchState {
     ...legOptions
   } = options
 
-  const current = leg({ ...legOptions, teams })
+  // A cricket match's legs are cricket legs whether or not the caller bothered
+  // to say what is on the board, so a test that only cares about the variant
+  // still gets marks-shaped teams rather than an x01 leg wearing a cricket
+  // config. An empty map is a board nobody has hit yet, which is a real state.
+  const current = leg({
+    ...legOptions,
+    marks: legOptions.marks ?? (gameType === 'cricket' ? [{}, {}] : undefined),
+    teams,
+  })
   const activeLegId =
     options.activeLegId !== undefined
       ? options.activeLegId
@@ -250,7 +291,7 @@ export function matchState(options: MatchStateOptions = {}): MatchState {
           }
         : {
             game_type: 'cricket',
-            variant: 'standard',
+            variant,
             best_of: bestOf,
             start_rule: 'alternate',
             fixed_team: 0,
