@@ -381,12 +381,24 @@ transfer_image() {
     printf 'plan: skip that transfer entirely if darts:%s is already on the target\n' "$SHA"
     return 0
   fi
-  if query_target "docker image inspect darts:${SHA} >/dev/null"; then
-    # A same-sha redeploy skips 267 MB of transfer. This is an optimisation, not
-    # a short-circuit: everything after it still runs, because re-asserting the
-    # desired state and re-verifying health is the whole value of running a
-    # deploy twice.
-    skip "image darts:${SHA} is already on the target"
+  # Image *ids*, not merely "is the tag there".
+  #
+  # Rebuilding an unchanged commit does not produce the same image: the build
+  # embeds timestamps and an attestation manifest, so darts:<sha> locally can be
+  # a different image from darts:<sha> on the target while both honestly claim
+  # that commit. Skipping on tag presence alone would then leave the target
+  # running the older build of the right commit and report success -- harmless
+  # in effect, since the source matches, but a divergence that would be
+  # thoroughly confusing to debug and a lie in the skip message.
+  #
+  # Comparing ids makes the skip truthful: it fires only when the target already
+  # has this exact image, which is the case worth saving ~58 MB for.
+  local local_id="" remote_id=""
+  local_id="$(docker image inspect --format '{{.Id}}' "darts:${SHA}" 2>/dev/null)" || local_id=""
+  remote_id="$(query_target "docker image inspect --format '{{.Id}}' darts:${SHA}")" || remote_id=""
+
+  if [ -n "$local_id" ] && [ "$local_id" = "$remote_id" ]; then
+    skip "darts:${SHA} on the target is already this exact image"
     return 0
   fi
   run push_image "darts:${SHA}"
@@ -441,10 +453,16 @@ migrate_database() {
 
 # Point `latest` at a sha and bring the container up to match.
 #
-# Plain `up -d`, not `--force-recreate`: compose compares the running
-# container's image id against what the service's image resolves to now, so a
-# retag is a change it acts on, while a same-sha deploy stays the genuine no-op
-# the idempotence criterion asks for.
+# Plain `up -d`, not `--force-recreate`. Compose compares the running
+# container's image id against what the service's image resolves to now, so
+# moving the `latest` tag is a change it acts on -- measured: `Container darts
+# Recreated`. That is what makes rollback work with no extra flag.
+#
+# Note what this does *not* mean. A same-sha redeploy also recreates, because
+# rebuilding an unchanged commit yields a different image id (see
+# transfer_image). "Idempotent" here is a claim about the end state -- same
+# commit serving, same data -- and not a claim that the container is left
+# untouched.
 activate() {
   local tag="$1"
   run on_target docker tag "darts:${tag}" darts:latest
