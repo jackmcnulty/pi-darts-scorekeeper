@@ -1029,3 +1029,119 @@ them. It was checked two ways:
 The second is a development-time measurement rather than a committed test, for
 #23's reason: a committed one would mean a backend test file for a frontend
 ticket.
+
+### Cricket play screen (#25)
+
+The cricket board reuses #24's keypad, `PlayFrame` and the leg-level helpers,
+and adds `play/cricket.ts` for the decisions that are cricket's alone: which
+glyph a mark count draws, when a target is dead, and whether the points column
+exists at all.
+
+#### The ticket and the mockup disagreed, and the ticket won
+
+#4's `CricketMockup.tsx` draws an eight-key keypad — 20, 19, 18, 17, 16, 15,
+BULL, MISS. It is the only way seven 44px mark rows fit, and it makes a dart at
+12 literally unreachable, which contradicts #25's own scope line ("non-target
+numbers dimmed but **still enterable**") and its fifth criterion. Its single
+BULL key is a second problem: cricket's outer bull is one mark and the inner is
+two, so a board with one bull key cannot record the difference.
+
+The arithmetic was measured in Chrome at 402×781 — the 402×874 device less the
+59px Dynamic Island and 34px home-indicator insets, which is the content box the
+frame actually gets:
+
+| Row | px |
+| --- | --- |
+| topbar, and the frame's gaps | 96 |
+| multiplier latch | 66 |
+| keypad grid, 4 rows at the 56px floor | 248 |
+| actions row, with its margin | 64 |
+| visit strip | 32 |
+| **left for the board** | **271** |
+
+The mockup's board needs 410. So the board was compressed instead of the keypad
+being cut: a single-line header rather than the mockup's stacked block, rows at
+~30px rather than 44, and a 2px row gap. Correctness over fidelity — a dart at
+12 is still a dart.
+
+#### The board stretches and the keypad is pinned
+
+This is the inversion of the x01 board and it is load-bearing. There the keypad
+grid is the one `flex: 1 1 auto` and every other row is fixed. Here
+`.cricket .keypad__grid` is `flex: 0 0 auto`, pinned to exactly its
+56px-per-key minimum, and `.cricket__board` is the row that grows.
+
+They cannot both grow. As siblings in one flex column the keypad's much larger
+basis wins every argument, and the board is starved into rows that overlap each
+other. Pinning the keys is also what makes the touch floor a floor: an error
+strip now costs the seven mark rows a couple of px each instead of pushing the
+UNDO key off the bottom of the screen, which is the one key you need when there
+is an error on screen.
+
+The mark rows carry `min-height: 0` for the same reason — they are what gives
+way. Every grid item also carries an explicit `grid-row: 1`: the target spine
+leads in the DOM so a screen reader hears "20" before the two cells on it, but
+sits in column 2 on screen, and without the explicit row the first mark cell is
+placed *behind* it and sparse auto-flow pushes it on to a second row, silently
+doubling the height of all seven.
+
+Both of those were caught by looking at the screen and by nothing else. jsdom
+does no layout, so no test here could have seen either.
+
+#### Dead is a drawing decision, not the engine's
+
+`engine/cricket.py` asks whether every *opponent* has closed a target, because
+surplus only pays out while somebody is still open to score against. #25 asks
+for "closed by every team". For two teams — the only shape #23 creates — the
+two coincide; for three they would not. Nothing on the client feeds a scoring
+rule, so the ticket's wording is what `rowIsDead` implements, and the difference
+is written down rather than papered over in a comment claiming to be the
+engine's.
+
+One deliberate divergence from the engine: with no teams at all `_is_dead` is
+vacuously true, which is right for a scoring rule and wrong for a drawing one.
+A board with no columns has nothing finished on it.
+
+#### The points column is absent in quick, not greyed
+
+`quick` wastes every surplus mark, so every total is zero for the whole leg.
+Measured: the same three darts (T20, T20, 19) pay the thrower 60 under
+`standard` and nothing under `quick`. A column of zeroes would invite the player
+to wonder what moves it, so it is not drawn at all — the same call #23 made
+making cricket's in/out rule controls absent rather than disabled.
+
+#### Cut-throat attribution is the totals, plus what moved
+
+`TeamLegResponse` carries each team's running points; `DartResponse` carries
+nothing cricket-specific, so there is no per-dart "+60 → Dad" without widening
+the backend. It was not widened. The criterion's claim — points accruing to the
+opponents and not to the thrower — is already visible in the totals, because the
+thrower's demonstrably does not move, and `changesBetween` notices which one did
+so the board can draw attention to it.
+
+That diff derives nothing about the rules. A cell closed because the server says
+it now holds three marks and said it held fewer a moment ago. Working out who
+*should* have been paid is the one cut-throat rule that would be easiest to get
+subtly wrong, and the client never attempts it.
+
+The diff is keyed on the payload's identity rather than the view's: react-query
+returns the same `MatchState` object until a new response replaces it, so the
+effect fires exactly once per payload. The first payload reports nothing, or a
+board opened mid-match would announce every already-closed number at once.
+
+#### What was verified, and how
+
+The preview tooling worked for the first time in this repo, so #25's two
+browser-shaped criteria were checked in a real browser rather than by
+construction. The 402×874 fit was measured at 402×781 in Chrome with the insets
+modelled rather than emulated — that is stronger than #24's "by construction"
+and still not a device, so it joins #32.
+
+The mark rendering was also measured against payloads the server really sends:
+120 legs, 40 per variant, driven through the real API with random throws from
+`ALL_THROWS`, producing 7,194 `MatchStateResponse` payloads. Every one was fed
+through the real `boardView`, giving 100,716 cells covering all four mark counts
+and all three cell states, with no disagreement between a cell and the payload
+it was built from, and no `quick` leg carrying points. A development-time
+measurement rather than a committed test, for #23's reason: a committed one
+would mean a backend test file for a frontend ticket.

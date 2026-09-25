@@ -1,0 +1,308 @@
+/* The cricket board, inside `Play.css`'s frame.
+ *
+ * THE HEIGHT BUDGET IS THE POINT, and it is tighter here than on the x01 board
+ * because the full 23-key keypad and seven mark rows very nearly do not fit.
+ * Measured in Chrome at 402x781 -- the 402x874 device less the 59px Dynamic
+ * Island and 34px home indicator insets, which is the content box the frame
+ * actually gets:
+ *
+ *   topbar 56 + the frame's five 8px gaps .... 96
+ *   multiplier latch ......................... 66
+ *   keypad grid, 4 rows at the 56px floor ... 248
+ *   actions row 56 + its 8px margin .......... 64
+ *   visit strip .............................. 36
+ *   ------------------------------------------------
+ *   left for the board ...................... 271
+ *
+ * #4's mockup draws the board at 410px: a 74px stacked header, seven 44px rows
+ * and 4px gaps. That is why `CricketMockup.tsx` has an eight-key keypad -- it
+ * is the only way those rows fit -- and why this screen does not: an eight-key
+ * keypad cannot enter a dart at 12, which #25's scope line and fifth criterion
+ * both require. So the board is compressed instead.
+ *
+ * Everything above the keypad is `flex: none` and the keypad grid is the single
+ * `flex: 1 1 auto`, exactly as on the x01 board, EXCEPT the board itself, which
+ * is `flex: 1 1 auto` with a `min-height: 0` so that a banner appearing takes
+ * its height out of the rows rather than out of the keys. The rows have no hard
+ * `min-height` for the same reason: they compress a few px under an error strip
+ * instead of pushing the UNDO key off the bottom of the screen, which is the one
+ * key you need when there is an error on screen. */
+
+.cricket {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Two teams with the target spine down the middle, which is #4's approved
+ * layout and the only shape #23 can create. The header and every mark row share
+ * this grid, so the spine stays a single vertical line down the board. */
+.cricket__header,
+.cricket__row {
+  display: grid;
+  grid-template-columns: 1fr 56px 1fr;
+  gap: var(--space-1);
+}
+
+/* Every item on the one row this grid has.
+ *
+ * The spine leads in the DOM -- a screen reader should hear "20" before the two
+ * cells on it -- and is placed in column 2, so without this the first mark
+ * cell, which wants column 1, is placed *behind* it and sparse auto-flow pushes
+ * it on to a second row. That turns each row into two and the board into twice
+ * its height. Explicit columns need explicit rows. */
+.cricket__header > *,
+.cricket__row > * {
+  grid-row: 1;
+}
+
+.cricket__header {
+  flex: none;
+}
+
+/* A compact single line rather than the mockup's stacked block: 47px against
+ * 74px, which is 27 of the 87px the board had to find. */
+.cricket__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  min-width: 0;
+}
+
+.cricket__head--active {
+  background: var(--color-surface-raised);
+  border-color: var(--color-text-secondary);
+}
+
+.cricket__head-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cricket__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-full);
+  display: inline-block;
+  flex: none;
+}
+
+.cricket__head-points {
+  flex: none;
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  /* The tallest thing in the header, so its leading is what sets the header's
+   * height -- and every px here is a px off all seven mark rows. */
+  line-height: 1;
+}
+
+/* #25: cut-throat points must be seen accruing to the opponents rather than to
+ * the thrower. The totals are the server's and they already say so -- the
+ * thrower's does not move -- and this is what makes the one that did move catch
+ * the eye at a board from seven feet away. The element is keyed on its value,
+ * so React remounts it when the total changes and the animation replays without
+ * a timer or a piece of state. */
+.cricket__head-points--gained {
+  animation: cricket-gained 700ms ease-out;
+}
+
+@keyframes cricket-gained {
+  0% {
+    transform: scale(1);
+    color: var(--color-text);
+  }
+  30% {
+    transform: scale(1.35);
+    color: var(--color-danger);
+  }
+  100% {
+    transform: scale(1);
+    color: var(--color-text);
+  }
+}
+
+/* The one stretching row on this screen, and the opposite of the x01 board.
+ *
+ * There the keypad grid grows and everything else is fixed. Here the keypad is
+ * pinned to exactly its 56px-per-key minimum and the BOARD absorbs what is
+ * left, because the two cannot both stretch: they are siblings in the same flex
+ * column, and when both grow the keypad's larger basis wins every argument and
+ * starves the board into overlapping rows. Pinning the keys is also what makes
+ * the touch floor a floor rather than a suggestion -- an error strip now costs
+ * the mark rows a couple of px each instead of pushing UNDO off the screen. */
+.cricket__board {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.cricket .keypad__grid {
+  flex: 0 0 auto;
+}
+
+/* 36px rather than the mockup's 44, which is the other 56px of the 87. No hard
+ * `min-height`: see the note at the top about who gives way under a banner. */
+.cricket__row {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.cricket__target {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-numeric);
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+/* The mark cell. The glyph is the primary signal; the states also change
+ * background and border, so none of them rests on colour alone. */
+.cricket__marks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-numeric);
+  /* One glyph in a ~30px row: `--text-lg` overflows it, and the cell is one
+   * character wide, so the step down costs no legibility at arm's length. */
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  line-height: 1;
+  color: var(--color-text);
+  /* #25 asks that closing a number clearly signal the change. The transition
+   * covers the colour and border shift; `--closing` below is the moment. */
+  transition:
+    background-color 200ms ease-out,
+    border-color 200ms ease-out,
+    color 200ms ease-out;
+}
+
+.cricket__marks[data-marks='0'] {
+  color: var(--color-text-muted);
+}
+
+/* Closed by this team, and still worth throwing at: somebody else is open. */
+.cricket__marks[data-state='closed'] {
+  background: var(--color-surface-raised);
+  color: var(--color-success);
+  border-color: var(--color-success);
+}
+
+/* Closed by everybody. Nothing left to score here, so it recedes -- distinct
+ * from `closed` by more than colour: the border goes flat and the glyph dims. */
+.cricket__marks[data-state='dead'] {
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border-color: var(--color-border);
+  opacity: 0.55;
+}
+
+/* The moment a number closes. Runs once, on the payload that closed it. */
+.cricket__marks[data-closing='true'] {
+  animation: cricket-closing 600ms ease-out;
+}
+
+@keyframes cricket-closing {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 var(--color-success);
+  }
+  35% {
+    transform: scale(1.18);
+    box-shadow: 0 0 0 4px var(--color-success);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/* A player at a board may have motion turned off; the state still has to read,
+ * which is why the glyph and the border carry it and the animation only ever
+ * draws attention to a change the cell already shows. */
+@media (prefers-reduced-motion: reduce) {
+  .cricket__marks,
+  .cricket__head-points {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* The visit on screen. #25's fifth criterion: a dart at a non-target moves no
+ * mark, so this row is the only thing that tells the player it was recorded. */
+.cricket__visit {
+  flex: none;
+  display: flex;
+  gap: var(--space-2);
+  justify-content: center;
+}
+
+.cricket__dart {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  border: 1px solid var(--color-border);
+  font-family: var(--font-numeric);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+.cricket__dart--empty {
+  background: transparent;
+  border-style: dashed;
+  color: var(--color-text-muted);
+}
+
+.cricket__done {
+  flex: none;
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.cricket__error {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}

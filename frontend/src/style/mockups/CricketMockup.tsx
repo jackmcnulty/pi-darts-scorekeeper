@@ -116,7 +116,11 @@ export function CricketMockup() {
           <Key label="17" />
           <Key label="16" />
           <Key label="15" />
-          <Key label="BULL" sub="25" />
+          {/* BULL is the inner bull and worth 50, as `X01Mockup` and the style
+              guide both have it. The real board needs a second key beside it:
+              in cricket the outer bull is one mark and the inner is two, which
+              one key cannot tell apart -- see #25 and `play/keypad.ts`. */}
+          <Key label="BULL" sub="50" />
           <Key label="MISS" sub="0" />
         </div>
       </div>

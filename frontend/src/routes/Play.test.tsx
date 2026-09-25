@@ -629,17 +629,20 @@ describe('a refusal from the server', () => {
 })
 
 describe('the states that are not an x01 board', () => {
-  it('names #25 for a cricket match instead of drawing a board it does not own', async () => {
-    // #23 will happily start a cricket match and navigate here today.
-    current = matchState({ gameType: 'cricket' })
+  it('hands a cricket match to the cricket board, on the same route', async () => {
+    // One route, two games: the match knows which it is and the player only
+    // ever taps "play". #25 replaced the notice #24 left here. The board itself
+    // is tested in `CricketBoard.test.tsx`; what this asserts is the handover
+    // and that the x01 board is not what got drawn.
+    current = matchState({ gameType: 'cricket', marks: [{ 20: 3 }, { 19: 1 }] })
     renderApp('/play/42')
 
     expect(
-      await screen.findByText(/cricket board is still to come in #25/, undefined, {
-        timeout: 5000,
-      }),
+      await screen.findByRole('table', { name: 'Cricket board' }, { timeout: 5000 }),
     ).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '20, single' })).not.toBeInTheDocument()
+    // The shared keypad came with it, and the x01 checkout strip did not.
+    expect(screen.getByRole('button', { name: '20, single' })).toBeInTheDocument()
+    expect(screen.queryByText('Checkout')).not.toBeInTheDocument()
   })
 
   it('refuses a path that is not a match without asking the server', async () => {
