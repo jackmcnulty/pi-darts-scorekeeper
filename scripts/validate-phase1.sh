@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Reproduce the Phase 1 backend gate and produce a browsable coverage report.
-set -euo pipefail
+set -Eeuo pipefail
 
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 cd -- "$repo_root"

@@ -349,6 +349,88 @@ typechecked by the worker's. Only `sw/sw.ts` lives in the fourth;
 
 ## Deployment
 
+### Packaging (#28)
+
+The Pi runs one container and nothing else. The operational checklist lives in
+`docs/deploy.md`; what follows is why the packaging is shaped the way it is.
+
+**Three build stages, because the toolchains are unrelated.** Node builds the
+frontend and is discarded; uv resolves the Python environment and is discarded.
+The runtime stage inherits a built virtualenv and a directory of static assets
+and carries neither npm nor uv nor a compiler. That is most of the image size
+and most of the CVE surface that would otherwise sit on an SD card for years
+between deploys. `uv sync --no-editable` is what makes the third stage possible
+at all: an editable install would leave the venv pointing at a source tree the
+runtime stage never copies.
+
+**No systemd unit.** `restart: unless-stopped` plus an enabled `docker.service`
+is the entire boot-and-recovery story, which is why `bootstrap-pi.sh` runs
+`systemctl enable docker` and why that step is load-bearing rather than tidy.
+
+**`restart:` restarts a container that exits, not one that is unhealthy.** The
+distinction matters here more than it usually would, because `/api/healthz`
+deliberately keeps serving and reports 503 when the database is degraded (#12).
+A degraded box therefore stays up and stays unhealthy, and `docker ps` is how
+you find out. The healthcheck is observability, not recovery, and nothing in
+this deployment converts one into the other.
+
+A related finding, recorded because the ticket's wording implies otherwise:
+Docker Engine treats an explicit `docker kill` as a *manual* stop and does not
+apply the restart policy to it — verified on Engine 29.5.2 with both
+`unless-stopped` and `always`. A crash originating inside the container does
+restart. The criterion's intent is met; the literal command in it is not.
+
+**Bind mounts, and therefore a fixed uid.** `/var/lib/darts` and
+`/srv/darts-share` are bind mounts so that the `sqlite3` CLI over SSH and Samba
+in #30 see ordinary files. That only works if the container's uid agrees with
+the host's, so the image fixes 1000:1000 — `pi` on Raspberry Pi OS — rather
+than taking a build arg, and `bootstrap-pi.sh` chowns the mounts to match. The
+container is non-root and cannot fix ownership itself.
+
+The sharp edge of that decision: opening a WAL-mode database creates
+`-wal`/`-shm` files owned by the opener *even on a read-only connection*, so
+inspecting the database as `root` leaves sidecars the container cannot write,
+and SQLite reports it as `attempt to write a readonly database` — naming the
+database rather than the files actually at fault. `docs/deploy.md` leads with
+this.
+
+**`stop_grace_period: 30s`.** The shutdown hook runs
+`PRAGMA wal_checkpoint(TRUNCATE)`, and a busy checkpoint is reported rather
+than raised (`docs/durability.md`). A grace period that is too short therefore
+does not fail loudly; it silently leaves a populated WAL. 30s is slack for a
+slow card, not a figure that gets reached.
+
+**`.dockerignore` is an allowlist.** Docker does not read `.gitignore`, and the
+repository root contains `var/darts.db` — a real database with real matches in
+it. A denylist would ship whatever the next ticket adds; the allowlist also
+takes the build context from 198.65 MB to 1.53 MB.
+
+**The healthcheck uses `urllib`, not `curl`.** `python:3.11-slim` ships neither
+`curl` nor `wget`, and installing one would add an apt layer and a CVE surface
+for one request every thirty seconds. The interpreter is already there. The
+probe reads `PRAGMA user_version`, which costs no write — deliberate, because
+it runs every thirty seconds for years on a card that wears out (#12).
+
+**The entrypoint exists solely to `exec`.** Uvicorn has to *be* PID 1 so that
+SIGTERM reaches it directly; a shell in between would absorb the signal and the
+WAL checkpoint would never run, silently. It is a script rather than an
+exec-form `CMD` only because the port is configurable and exec form does not
+expand variables.
+
+#### The dry-run is tested from pytest
+
+`scripts/bootstrap-pi.sh --dry-run` writes its plan to stdout, one action per
+line, and everything human to stderr; `tests/deploy/test_bootstrap_dry_run.py`
+asserts over that stream. Shell, but tested by the repo's existing runner for
+the same reason `tests/api/test_lifespan.py` runs a real uvicorn — the thing
+worth testing is the process.
+
+Every mutation routes through `run` in `scripts/lib.sh`, which returns before
+executing when `DRY_RUN=1`. That is what lets the test assert the target
+directories are still absent afterwards, which is not ceremony: CI runs as a
+user who could create them for real, so an escaped mutation would pass on the
+runner and only surface on the Pi.
+
 ## Durability and disaster recovery
 
 ### Setup API (#17)

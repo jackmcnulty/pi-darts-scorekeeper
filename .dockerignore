@@ -1,0 +1,39 @@
+# What the image build is allowed to see.
+#
+# This is an allowlist -- everything is excluded, then the few paths the build
+# genuinely needs are added back -- rather than a copy of .gitignore. Docker
+# does not read .gitignore, so a denylist here would ship whatever the next
+# ticket adds to the repository root. The specific thing an allowlist prevents
+# is `var/darts.db`: a real database with real matches in it, sitting in the
+# build context of an image that gets copied to a Pi.
+#
+# It also keeps the context small. Denying nothing sends ~353 MB (.venv is a
+# macOS-arm64 virtualenv that is useless to a linux image, frontend/node_modules
+# is reinstalled by `npm ci` in the build anyway); this allowlist sends ~2 MB.
+*
+
+# The Python stage: dependency resolution, then the package itself.
+# README.md and LICENSE are here because pyproject.toml's `readme` and
+# `license` point at them, so hatchling cannot build the wheel without them.
+!pyproject.toml
+!uv.lock
+!README.md
+!LICENSE
+!backend
+
+# The Node stage. `npm run build` is `tsc -b && vite build`, and tsconfig.json
+# references the test project as well as the app, so type-checking needs the
+# whole source tree -- tests included -- not just what Vite bundles.
+!frontend
+
+# The entrypoint, which the runtime stage COPYs in.
+!deploy
+
+# Re-excluded from the directories added back above. node_modules is what
+# `npm ci` rebuilds from package-lock.json inside the image, and copying a
+# macOS one in would defeat the point of installing at all.
+frontend/node_modules
+frontend/dist
+frontend/coverage
+**/__pycache__
+**/*.pyc
