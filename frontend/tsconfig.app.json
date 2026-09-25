@@ -39,6 +39,7 @@
     "src/test-setup.ts",
     "src/test-harness.tsx",
     "src/play/statefixture.ts",
+    "src/matches/historyfixture.ts",
     "src/sw/sw.ts"
   ]
 }

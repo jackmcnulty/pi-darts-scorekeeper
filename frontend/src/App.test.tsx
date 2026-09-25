@@ -22,6 +22,7 @@ import { screen } from '@testing-library/react'
 import { http, HttpResponse } from 'msw'
 import type { MockInstance } from 'vitest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { match as matchFixture } from './matches/historyfixture'
 import { matchState } from './play/statefixture'
 import { installServer, renderApp, server } from './test-harness'
 
@@ -43,6 +44,13 @@ beforeEach(() => {
     // #24's screen is the first deep link that reads a match, so an empty box
     // is not enough for it: `/play/7` fetches before it can draw anything.
     http.get('*/api/matches/:matchId/state', () => HttpResponse.json(matchState())),
+    // #26's match detail reads the match itself and its darts.
+    http.get('*/api/matches/:matchId/darts', ({ params }) =>
+      HttpResponse.json({ match_id: Number(params.matchId), legs: [] }),
+    ),
+    http.get('*/api/matches/:matchId', ({ params }) =>
+      HttpResponse.json(matchFixture({ id: Number(params.matchId) })),
+    ),
   )
 })
 
@@ -62,6 +70,8 @@ describe('the screens that are built', () => {
     ['/', 'Darts'],
     ['/players', 'Players'],
     ['/setup', 'New match'],
+    // #26 replaced this placeholder in place, at the path #21 chose for it.
+    ['/history', 'History'],
   ])('%s routes to the real %s screen, not a placeholder', async (path, title) => {
     openAt(path)
     expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument()
@@ -70,11 +80,8 @@ describe('the screens that are built', () => {
   })
 })
 
-describe('the screens #26 onwards will fill in', () => {
-  it.each([
-    ['/history', 'History', '#26'],
-    ['/stats', 'Stats', '#27'],
-  ])('%s routes to %s', (path, title, ticket) => {
+describe('the screens #27 onwards will fill in', () => {
+  it.each([['/stats', 'Stats', '#27']])('%s routes to %s', (path, title, ticket) => {
     openAt(path)
     expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
     expect(screen.getByText(`Waiting on ${ticket}`)).toBeInTheDocument()
@@ -86,9 +93,12 @@ describe('deep links', () => {
   // The acceptance criterion: "reloading on a deep link like /history/42
   // loads that screen". The server half is tests/api/test_static.py; this is
   // the client half, and together they are the whole round trip.
-  it('/history/42 loads the match screen, not the history list', () => {
+  it('/history/42 loads the match screen, not the history list', async () => {
     openAt('/history/42')
-    expect(screen.getByRole('heading', { name: 'Match' })).toBeInTheDocument()
+    // #26 filled this in, so the heading is now the match's own title rather
+    // than the placeholder's "Match". The claim is unchanged: the deep link
+    // reaches the detail screen and not the list.
+    expect(await screen.findByRole('heading', { name: '501 · Best of 3' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'History' })).not.toBeInTheDocument()
     expectCleanConsole()
   })

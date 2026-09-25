@@ -1,0 +1,180 @@
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-6);
+}
+
+.detail__header {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.detail__title {
+  margin: 0;
+  font-family: var(--font-numeric);
+  font-size: var(--text-xl);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--leading-tight);
+}
+
+.detail__players {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.detail__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.detail__status {
+  align-self: flex-start;
+  margin: var(--space-1) 0 0;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Same three-way distinction as the list. See `History.css`. */
+.detail__status--complete {
+  background: var(--color-surface-raised);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.detail__status--abandoned {
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border-strong);
+}
+
+.detail__status--in_progress {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.detail__leg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.detail__leg-title {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.detail__leg-meta {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.detail__visits {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detail__visit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.detail__visit-player {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.detail__visit-darts {
+  display: flex;
+  flex: none;
+  gap: var(--space-1);
+}
+
+.detail__dart {
+  min-width: 2.75rem;
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-raised);
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.detail__visit-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex: none;
+  min-width: 4.5rem;
+}
+
+.detail__scored {
+  font-family: var(--font-numeric);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail__left,
+.detail__thrown {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Criterion 3. The strike says the darts scored nothing; it is deliberately
+ * *only* on the darts, never on the count beside them, because the count is the
+ * thing the strike would otherwise contradict -- these darts were thrown and
+ * they counted toward darts-thrown. The `BUST` marker carries the same message
+ * without relying on the strike being noticed, and without relying on colour. */
+.detail__visit--bust {
+  background: var(--color-surface-raised);
+}
+
+.detail__visit--bust .detail__dart {
+  text-decoration: line-through;
+  text-decoration-thickness: 2px;
+  text-decoration-color: var(--color-danger);
+  color: var(--color-text-muted);
+}
+
+.detail__bust {
+  color: var(--color-danger);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.08em;
+}
+
+.detail__back {
+  margin: 0;
+}
+
+.detail__back a {
+  color: var(--color-primary);
+}

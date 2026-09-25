@@ -58,6 +58,7 @@ import {
 } from '../play/leg'
 import { useWakeLock } from '../play/wakeLock'
 import { bustOf, cardLabel, checkoutText, contextLine, teamCards, visitTotal } from '../play/x01'
+import { CompletionSheet } from './CompletionSheet'
 import { CricketBoard } from './CricketBoard'
 import { PlayFrame } from './PlayFrame'
 import './Play.css'
@@ -118,15 +119,22 @@ export function Play() {
   // ever taps "play"; everything above this line -- the id check, the loading
   // and error states, the wake lock, the three hooks -- is the same either way,
   // so the split is here rather than at the router.
+  // #26's completion sheets sit over whichever board is underneath. They are a
+  // fixed-position overlay, so where they are in the tree does not affect
+  // layout, and they render nothing at all until a leg or the match is won --
+  // which is why both branches can mount one unconditionally.
   if (match.config.game_type === 'cricket') {
     return (
-      <CricketBoard
-        match={match}
-        latch={latch}
-        onLatchChange={setLatch}
-        recordDart={recordDart}
-        undoDart={undoDart}
-      />
+      <>
+        <CricketBoard
+          match={match}
+          latch={latch}
+          onLatchChange={setLatch}
+          recordDart={recordDart}
+          undoDart={undoDart}
+        />
+        <CompletionSheet match={match} />
+      </>
     )
   }
 
@@ -261,6 +269,8 @@ export function Play() {
         disabled={busy || !playable}
         undoDisabled={busy || !canUndo(match)}
       />
+
+      <CompletionSheet match={match} />
     </PlayFrame>
   )
 }
