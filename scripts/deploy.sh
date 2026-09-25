@@ -15,12 +15,24 @@
 # retag `latest`, `up -d` -- pointed at a different sha.
 #
 # That is why images are sha-tagged and `darts:latest` is a moving alias:
-# deploy/compose.yaml hardcodes `image: darts:latest` and is shipped to the
-# target as a constant, with no per-host state to drift out of sync. Compose
-# interpolates `${VAR}` from the shell environment or a `.env` file beside the
-# compose file and *not* from `env_file:` -- a distinction #28 proved the hard
-# way -- so the alternative would have meant inventing a second piece of host
-# state that has to stay correct for a rollback to work at all.
+# deploy/compose.yaml hardcodes `image: darts:latest`, so it is a constant on the
+# target with no per-host state to drift out of sync. Compose interpolates
+# `${VAR}` from the shell environment or a `.env` file beside the compose file
+# and *not* from `env_file:` -- a distinction #28 proved the hard way -- so the
+# alternative would have meant inventing a second piece of host state that has to
+# stay correct for a rollback to work at all.
+#
+# The division of labour with bootstrap-pi.sh, which is what keeps this simple to
+# operate: bootstrap owns everything that lives on the host, including
+# /etc/darts/compose.yaml. A deploy only ever touches images and the container.
+# So a deploy needs no source checkout on the Pi and no root at any point --
+# which is not fastidiousness, because anything run there as root leaves WAL
+# sidecars the container cannot write.
+#
+# The cost of that division is that a changed deploy/compose.yaml does not reach
+# an already-bootstrapped Pi until bootstrap is re-run. Preflight compares the
+# two and refuses rather than letting it pass unnoticed; see
+# check_compose_current.
 #
 # Ordering, and the one place it is not the order the ticket lists:
 #
@@ -62,14 +74,12 @@ HOST="${DARTS_DEPLOY_HOST:-}"
 SSH_CONFIG="${DARTS_SSH_CONFIG:-}"
 PORT="${DARTS_PORT:-8000}"
 
-#: Where the compose file is shipped to, relative to the SSH user's home.
+#: The compose file on the target, installed there by bootstrap-pi.sh.
 #:
-#: Not /etc/darts, which bootstrap-pi.sh creates root-owned: the env file there
-#: is host configuration an operator edits by hand, whereas the compose file is
-#: an artefact this script overwrites on every deploy. Keeping it under the
-#: deploy user's home means no step of a deploy needs sudo, which is worth more
-#: than tidiness -- see the note about uid 1000 and WAL sidecars below.
-REMOTE_DIR="${DARTS_REMOTE_DIR:-darts}"
+#: A deploy reads it and never writes it, which is what keeps a deploy from
+#: needing root on the Pi. Anything run there as root would leave WAL sidecars
+#: the container cannot write -- see the warning at the top of docs/deploy.md.
+COMPOSE_FILE="${DARTS_COMPOSE_FILE:-/etc/darts/compose.yaml}"
 
 #: The bind-mounted state directory from deploy/compose.yaml.
 STATE_DIR="/var/lib/darts"
@@ -93,12 +103,12 @@ automatically if the new build does not come up healthy.
 
   --host <host>          SSH destination of the target, e.g. pi@darts.local.
                          Defaults to $DARTS_DEPLOY_HOST.
-  --ssh-config <file>    Pass -F <file> to ssh and scp. Defaults to
+  --ssh-config <file>    Pass -F <file> to ssh. Defaults to
                          $DARTS_SSH_CONFIG.
   --port <port>          Port the app is published on (default 8000). Must match
                          the published port in deploy/compose.yaml.
-  --remote-dir <path>    Directory on the target for the compose file, relative
-                         to the SSH user's home (default "darts").
+  --compose-file <path>  The compose file on the target, installed there by
+                         bootstrap-pi.sh (default /etc/darts/compose.yaml).
   --keep <n>             Sha-tagged images to keep on the target (default 5).
                          Older ones are deleted; the running image and the
                          rollback target are never deleted.
@@ -133,8 +143,8 @@ while [ $# -gt 0 ]; do
       PORT="${2:-}"
       shift
       ;;
-    --remote-dir)
-      REMOTE_DIR="${2:-}"
+    --compose-file)
+      COMPOSE_FILE="${2:-}"
       shift
       ;;
     --keep)
@@ -206,7 +216,6 @@ preflight() {
   require_cmd git
   require_cmd docker
   require_cmd ssh
-  require_cmd scp
 
   [ -f "${repo_root}/deploy/Dockerfile" ] ||
     die "missing ${repo_root}/deploy/Dockerfile"
@@ -232,6 +241,7 @@ check_bootstrapped() {
   if [ "$DRY_RUN" = "1" ]; then
     printf 'plan: verify %s exists on the target, owned by uid 1000\n' "$STATE_DIR"
     printf 'plan: verify /etc/darts/darts.env exists on the target\n'
+    printf 'plan: verify %s matches deploy/compose.yaml in this checkout\n' "$COMPOSE_FILE"
     return 0
   fi
 
@@ -245,7 +255,36 @@ check_bootstrapped() {
   query_target "test -f /etc/darts/darts.env" ||
     die "/etc/darts/darts.env is missing on ${HOST}; run scripts/bootstrap-pi.sh there first"
 
+  query_target "test -f ${COMPOSE_FILE}" ||
+    die "${COMPOSE_FILE} is missing on ${HOST}; run scripts/bootstrap-pi.sh there first"
+
+  check_compose_current
+
   log "${STATE_DIR} is present and owned by uid 1000"
+}
+
+# Refuse to deploy against a compose file older than the one in this checkout.
+#
+# bootstrap-pi.sh owns the compose file on the target, which keeps a deploy free
+# of root and of any need for a source tree on the Pi. The cost of that division
+# is this failure mode: change deploy/compose.yaml here -- a new bind mount for
+# #30's share, a different published port -- and the Pi keeps running the old one
+# until bootstrap is re-run. Nothing about the deploy would look wrong. The
+# container would simply not have the mount, and the reason would be a file
+# nobody thought to look at.
+#
+# So it is compared rather than trusted, and the fix is named in the error.
+check_compose_current() {
+  local want="" got=""
+  want="$(shasum -a 256 <"${repo_root}/deploy/compose.yaml" | awk '{print $1}')" || want=""
+  got="$(query_target "sha256sum ${COMPOSE_FILE}" | awk '{print $1}')" || got=""
+
+  if [ -z "$want" ] || [ -z "$got" ]; then
+    warn "could not compare ${COMPOSE_FILE} against this checkout; continuing"
+    return 0
+  fi
+  [ "$want" = "$got" ] ||
+    die "${COMPOSE_FILE} on ${HOST} differs from deploy/compose.yaml; re-run scripts/bootstrap-pi.sh there"
 }
 
 # The image is stamped with HEAD's short sha and reports it from /api/healthz
@@ -378,16 +417,11 @@ transfer_image() {
   run push_image "darts:${SHA}"
 }
 
-install_compose_file() {
-  run on_target mkdir -p "$REMOTE_DIR"
-  run copy_to_target "${repo_root}/deploy/compose.yaml" "${REMOTE_DIR}/compose.yaml"
-}
-
 # SIGTERM, a drained uvicorn, and the WAL checkpoint the lifespan hook runs on
 # the way out. `stop` rather than `down` so the container definition survives to
 # be compared against the new image.
 stop_container() {
-  run on_target docker compose -f "${REMOTE_DIR}/compose.yaml" stop
+  run on_target docker compose -f "$COMPOSE_FILE" stop
 }
 
 # Every database command runs *inside a container*, as the image's uid 1000,
@@ -440,7 +474,7 @@ migrate_database() {
 activate() {
   local tag="$1"
   run on_target docker tag "darts:${tag}" darts:latest
-  run on_target docker compose -f "${REMOTE_DIR}/compose.yaml" up -d
+  run on_target docker compose -f "$COMPOSE_FILE" up -d
 }
 
 await_sha() {
@@ -525,7 +559,6 @@ main() {
   list_remote_tags
 
   transfer_image
-  install_compose_file
 
   stop_container
   backup_database

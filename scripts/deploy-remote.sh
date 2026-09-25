@@ -30,11 +30,6 @@ on_target() {
   ssh "${SSH_OPTS[@]}" "$HOST" "$@"
 }
 
-copy_to_target() {
-  local src="$1" dest="$2"
-  scp "${SSH_OPTS[@]}" -- "$src" "${HOST}:${dest}"
-}
-
 # A read-only query. Deliberately *not* routed through `run`: queries have to
 # actually execute for the calling script to make decisions, and in --dry-run
 # they are skipped entirely rather than run against a target that may not

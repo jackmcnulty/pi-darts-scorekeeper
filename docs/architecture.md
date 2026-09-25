@@ -490,10 +490,23 @@ read-only, so anything run under `sudo` would leave sidecars the container
 cannot write. Migrations come from the new image rather than
 `docker compose exec`, which would run the old container's migration set.
 
-`bootstrap-pi.sh` does not install the compose file, and #28's checklist assumed
-a checkout on the Pi that #29 explicitly does not want. `deploy.sh` ships it to
-`~/darts/compose.yaml` on every deploy, under the deploy user's home rather than
-root-owned `/etc/darts`, so that no step of a deploy needs `sudo`.
+**`bootstrap-pi.sh` owns everything that lives on the host; `deploy.sh` owns
+images and the container.** That includes `/etc/darts/compose.yaml`, which #28
+did not install — its checklist assumed a checkout on the Pi that #29 explicitly
+does not want. Putting it there rather than having the deploy ship it keeps a
+deploy down to one command with no setup in it, and means a deploy never writes
+to the Pi's filesystem and never needs root. Root is not a stylistic concern
+here: anything run as root leaves WAL sidecars the container cannot write.
+
+`compose.yaml` is replaced on every bootstrap run, deliberately unlike
+`darts.env`. The env file is the operator's and must survive a re-run; the
+compose file is a repository artefact whose only correct copy is the current one.
+
+The seam that division creates is staleness: a changed `deploy/compose.yaml` does
+not reach an already-bootstrapped Pi until bootstrap is re-run, and nothing about
+the deploy would look wrong — the container would simply lack the new mount.
+Preflight therefore compares the two by checksum and refuses, naming the fix.
+Trusting it instead would have been the quiet failure this whole section is about.
 
 #### Three things measured that contradicted the obvious implementation
 

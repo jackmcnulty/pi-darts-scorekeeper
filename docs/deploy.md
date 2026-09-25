@@ -14,7 +14,7 @@ what a unit would do -- start at boot and restart after a crash -- given that
 | `deploy/compose.yaml` | Restart policy, bind mounts, published port, shutdown grace. |
 | `deploy/docker-entrypoint.sh` | `exec`s uvicorn so it is PID 1 and SIGTERM reaches it. |
 | `deploy/darts.env.example` | Template for `/etc/darts/darts.env`. |
-| `scripts/bootstrap-pi.sh` | Idempotent host setup. |
+| `scripts/bootstrap-pi.sh` | Idempotent host setup: directories, `darts.env`, `compose.yaml`. |
 | `.dockerignore` | Allowlist. Keeps `var/darts.db` out of the image. |
 | `scripts/deploy.sh` | Build, ship, migrate, restart, verify, roll back. |
 | `scripts/rollback.sh` | Manual rollback, after a deploy has already succeeded. |
@@ -29,7 +29,12 @@ what a unit would do -- start at boot and restart after a crash -- given that
 /var/lib/darts/backups/       darts-backup writes here
 /srv/darts-share/             snapshots, shared read-only by #30
 /etc/darts/darts.env          configuration, loaded by compose
+/etc/darts/compose.yaml       what deploy.sh drives the container with
 ```
+
+The two files in `/etc/darts` are installed by `bootstrap-pi.sh` and stay
+root-owned: nothing in the container writes them, and Compose reads them as the
+operator. `darts.env` is never overwritten by a re-run; `compose.yaml` always is.
 
 Both directories are bind mounts rather than named volumes, so that the
 `sqlite3` CLI over SSH and Samba in #30 reach the files as ordinary files
@@ -121,9 +126,9 @@ scripts/deploy.sh --host pi@darts.local --dry-run
 | Flag | Default | What it does |
 | --- | --- | --- |
 | `--host <host>` | `$DARTS_DEPLOY_HOST` | SSH destination. Required. |
-| `--ssh-config <file>` | `$DARTS_SSH_CONFIG` | Passed to ssh and scp as `-F`. |
+| `--ssh-config <file>` | `$DARTS_SSH_CONFIG` | Passed to ssh as `-F`. |
 | `--port <port>` | 8000 | Where the app is published. Must match `compose.yaml`. |
-| `--remote-dir <path>` | `darts` | Where the compose file goes, relative to the SSH user's home. |
+| `--compose-file <path>` | `/etc/darts/compose.yaml` | The compose file on the target, installed there by `bootstrap-pi.sh`. |
 | `--keep <n>` | 5 | Sha-tagged images to keep. The running image and the rollback target are never deleted, whatever their age. |
 | `--health-retries <n>` | 30 | Health poll attempts, one second apart. A failed poll triggers rollback. |
 | `--allow-dirty` | off | Deploy with uncommitted changes. Refused by default: the image is stamped with HEAD's sha and must not claim to be a commit it is not. |
@@ -139,7 +144,7 @@ scripts/deploy.sh --host pi@darts.local --dry-run
 | `--host <host>` | `$DARTS_DEPLOY_HOST` | SSH destination. Required. |
 | `--ssh-config <file>` | `$DARTS_SSH_CONFIG` | Passed to ssh as `-F`. |
 | `--port <port>` | 8000 | Where the app is published. |
-| `--remote-dir <path>` | `darts` | Where the compose file is. |
+| `--compose-file <path>` | `/etc/darts/compose.yaml` | The compose file on the target. |
 | `--to <sha>` | previous | Roll back to a specific sha. It must already be on the target. |
 | `--list` | | Show the sha tags on the target, newest first, and exit. |
 | `--health-retries <n>` | 30 | Health poll attempts after restarting. |
@@ -159,12 +164,33 @@ scripts/deploy.sh --host pi@darts.local --dry-run
 
 ### What the Pi needs, and what it does not
 
-It needs Docker, the Compose plugin, `curl`, and the directories
-`bootstrap-pi.sh` creates. `deploy.sh` refuses to run if `/var/lib/darts` is
-missing or is not owned by uid 1000 — not a courtesy check, because Docker
-*creates* a missing bind-mount source itself, owned by root, so `up -d` against
-an unprepared host succeeds and produces a container that cannot write its own
-database.
+There are exactly two commands, and they own different things. **`bootstrap-pi.sh`
+owns everything that lives on the host** — Docker, the directories,
+`/etc/darts/darts.env` and `/etc/darts/compose.yaml`. **`deploy.sh` owns images
+and the container**, and nothing else. It never writes a file to the Pi.
+
+That is what makes a deploy one command with no setup in it, and it is also why a
+deploy needs **no source checkout on the Pi and no root at any point**.
+
+`deploy.sh` refuses to run if `/var/lib/darts` is missing or is not owned by uid
+1000 — not a courtesy check, because Docker *creates* a missing bind-mount source
+itself, owned by root, so `up -d` against an unprepared host succeeds and
+produces a container that cannot write its own database.
+
+It also refuses if `/etc/darts/compose.yaml` does not match
+`deploy/compose.yaml` in the checkout you are deploying from. That is the one
+seam in the division of labour: change the compose file here — a mount for #30's
+share, a different published port — and the Pi keeps the old one until bootstrap
+is re-run. Nothing about the deploy would look wrong; the container would simply
+not have the mount. The error names the fix:
+
+```
+error: /etc/darts/compose.yaml on pi@darts.local differs from deploy/compose.yaml;
+       re-run scripts/bootstrap-pi.sh there
+```
+
+Re-running `sudo scripts/bootstrap-pi.sh` replaces `compose.yaml` every time,
+deliberately unlike `darts.env`, which is yours to edit and is never clobbered.
 
 It needs **no Node and no Python of its own**. Every database command runs
 inside the image, as uid 1000, with `--entrypoint` replacing the uvicorn
@@ -182,12 +208,10 @@ Forgetting `--entrypoint` starts a web server instead of doing what you asked.
 > on the Pi at any point. If a deploy ever seems to need `sudo`, something is
 > wrong with the ownership of `/var/lib/darts`, not with the deploy.
 
-No `sudo` also means the compose file cannot live in root-owned `/etc/darts`.
-It is shipped to `~/darts/compose.yaml` on every deploy, so it always matches
-the version of the repo that deployed. To drive Compose by hand:
+To drive Compose by hand — reading the root-owned file needs no privileges:
 
 ```
-docker compose -f ~/darts/compose.yaml ps
+docker compose -f /etc/darts/compose.yaml ps
 ```
 
 ### How rollback picks its target
@@ -380,12 +404,12 @@ Deploying `69123c6` (broken) over `1d236da` (healthy):
 ==> ... darts-migrate ... schema version 3; applied 0 migration(s); 4 view(s)
 ==> rollback target if this fails: 1d236da
 ==> on_target docker tag darts:69123c6 darts:latest
-==> on_target docker compose -f darts/compose.yaml up -d
+==> on_target docker compose -f /etc/darts/compose.yaml up -d
  Container darts Recreated
 warning: target did not report sha 69123c6 after 30 attempt(s)
 warning: the new build did not report 69123c6 in time; rolling back to 1d236da
 ==> on_target docker tag darts:1d236da darts:latest
-==> on_target docker compose -f darts/compose.yaml up -d
+==> on_target docker compose -f /etc/darts/compose.yaml up -d
  Container darts Recreated
 warning: rolled back to 1d236da; /api/healthz reports it after 31s
 error: deploy of 69123c6 failed and was rolled back to 1d236da

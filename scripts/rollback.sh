@@ -35,7 +35,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 HOST="${DARTS_DEPLOY_HOST:-}"
 SSH_CONFIG="${DARTS_SSH_CONFIG:-}"
 PORT="${DARTS_PORT:-8000}"
-REMOTE_DIR="${DARTS_REMOTE_DIR:-darts}"
+COMPOSE_FILE="${DARTS_COMPOSE_FILE:-/etc/darts/compose.yaml}"
 TARGET_SHA=""
 HEALTH_RETRIES=30
 LIST_ONLY=0
@@ -51,8 +51,8 @@ Point the target back at its previous image and restart.
                          Defaults to $DARTS_DEPLOY_HOST.
   --ssh-config <file>    Pass -F <file> to ssh. Defaults to $DARTS_SSH_CONFIG.
   --port <port>          Port the app is published on (default 8000).
-  --remote-dir <path>    Directory on the target holding the compose file,
-                         relative to the SSH user's home (default "darts").
+  --compose-file <path>  The compose file on the target, installed there by
+                         bootstrap-pi.sh (default /etc/darts/compose.yaml).
   --to <sha>             Roll back to this sha instead of the previous one. The
                          image must already be on the target.
   --list                 List the sha-tagged images on the target, newest
@@ -81,8 +81,8 @@ while [ $# -gt 0 ]; do
       PORT="${2:-}"
       shift
       ;;
-    --remote-dir)
-      REMOTE_DIR="${2:-}"
+    --compose-file)
+      COMPOSE_FILE="${2:-}"
       shift
       ;;
     --to)
@@ -190,7 +190,7 @@ main() {
   log "rolling ${HOST} back from ${RUNNING_SHA:-nothing} to ${TARGET_SHA}"
 
   run on_target docker tag "darts:${TARGET_SHA}" darts:latest
-  run on_target docker compose -f "${REMOTE_DIR}/compose.yaml" up -d
+  run on_target docker compose -f "$COMPOSE_FILE" up -d
 
   if [ "$DRY_RUN" = "1" ]; then
     printf 'plan: poll /api/healthz up to %s times, one second apart, for sha %s\n' \

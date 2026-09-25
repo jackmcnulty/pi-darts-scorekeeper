@@ -177,6 +177,30 @@ def test_the_image_is_stamped_with_the_commit(plan: Plan) -> None:
     assert plan.planned("docker build", "--build-arg", "GIT_SHA=")
 
 
+def test_the_deploy_never_writes_to_the_target_filesystem(plan: Plan) -> None:
+    """bootstrap-pi.sh owns everything on the host; a deploy owns images.
+
+    That division is why a deploy needs no source checkout on the Pi and no root
+    at any point -- and root matters, because anything run there as root leaves
+    WAL sidecars the container cannot write. A deploy that copied a file onto the
+    target would be the first crack in it.
+    """
+    for forbidden in ("scp", "mkdir", "tee", "install "):
+        offenders = [line for line in plan.lines if forbidden in line]
+        assert offenders == [], f"a deploy step writes to the target: {offenders}"
+
+
+def test_a_stale_compose_file_on_the_target_is_detected(plan: Plan) -> None:
+    """The cost of bootstrap owning the compose file.
+
+    Change deploy/compose.yaml here -- a mount for #30's share, a different
+    published port -- and the Pi keeps the old one until bootstrap is re-run.
+    Nothing about the deploy would look wrong; the container would simply not
+    have the mount. So it is compared rather than trusted.
+    """
+    assert plan.planned("verify", "compose.yaml", "matches")
+
+
 def test_the_container_is_stopped_before_the_backup(plan: Plan) -> None:
     """SIGTERM first, so the WAL checkpoint in the lifespan hook has run and the
     backup is taken with no writer attached (docs/durability.md)."""

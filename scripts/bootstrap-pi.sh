@@ -2,8 +2,13 @@
 # Prepare a fresh Raspberry Pi OS (Bookworm) box to run the scorekeeper.
 #
 # Installs Docker Engine and the Compose plugin, creates the directories the
-# bind mounts in deploy/compose.yaml expect, installs the env file, and enables
-# Docker at boot. It does not start the app -- deploying an image is #29's job.
+# bind mounts in deploy/compose.yaml expect, installs the env and compose files
+# into /etc/darts, and enables Docker at boot. It does not start the app --
+# deploying an image is #29's job.
+#
+# Everything that lives on the host is owned by this script, so that a deploy is
+# only ever about images and the container. That division is why scripts/deploy.sh
+# needs no source checkout on the Pi and no root at any point.
 #
 # Idempotent by construction: every action that would create something is
 # guarded by a check for the state it would create, and reports `already done`
@@ -198,17 +203,21 @@ ensure_dir() {
   run chown "${CONTAINER_UID}:${CONTAINER_GID}" "$path"
 }
 
-install_env_file() {
-  local target="${ETC_DIR}/darts.env"
-  local example="${repo_root}/deploy/darts.env.example"
-
-  [ -f "$example" ] || die "missing template: ${example}"
-
+# Left root-owned, unlike the bind mounts. Nothing in here is written by the
+# container -- these two files are read by Compose, which runs as the operator.
+ensure_etc_dir() {
   if [ -d "$ETC_DIR" ]; then
     skip "directory ${ETC_DIR} exists"
   else
     run mkdir -p "$ETC_DIR"
   fi
+}
+
+install_env_file() {
+  local target="${ETC_DIR}/darts.env"
+  local example="${repo_root}/deploy/darts.env.example"
+
+  [ -f "$example" ] || die "missing template: ${example}"
 
   # Never overwritten. This file is the one thing on the host an operator is
   # expected to edit, and clobbering it on a re-run would be exactly the
@@ -218,6 +227,29 @@ install_env_file() {
   else
     run cp "$example" "$target"
   fi
+}
+
+# The compose file deploy.sh drives the container with.
+#
+# It lives here, next to the env file, so that a deploy needs no source checkout
+# on the Pi -- which is the whole point of #29 -- and no write access to /etc,
+# which is what keeps a deploy from ever needing sudo. Running anything on the
+# Pi as root would leave WAL sidecars the container cannot write; see the
+# warning at the top of docs/deploy.md.
+#
+# Copied on **every** run, unlike darts.env, and the difference is the point:
+# darts.env is the operator's file and re-running must not clobber their edits,
+# whereas compose.yaml is a repository artefact and the only correct copy is the
+# current one. This is the same reasoning as the `chown`s -- re-applying it is
+# how ownership drift gets repaired -- and it is how a changed compose.yaml
+# reaches an already-bootstrapped Pi.
+install_compose_file() {
+  local target="${ETC_DIR}/compose.yaml"
+  local source="${repo_root}/deploy/compose.yaml"
+
+  [ -f "$source" ] || die "missing: ${source}"
+
+  run cp "$source" "$target"
 }
 
 # --- Result ----------------------------------------------------------------
@@ -255,7 +287,10 @@ main() {
   ensure_dir "$STATE_DIR"
   ensure_dir "${STATE_DIR}/backups"
   ensure_dir "$SHARE_DIR"
+
+  ensure_etc_dir
   install_env_file
+  install_compose_file
 
   print_lan_url
 }
