@@ -46,6 +46,15 @@ export function useResumableMatch(): UseQueryResult<Match | null> {
   })
 }
 
+/** One match's header: its config, its teams and its status. */
+export function useMatch(matchId: number): UseQueryResult<Match> {
+  return useQuery({
+    queryKey: [...MATCHES_KEY, matchId] as const,
+    queryFn: () =>
+      unwrap(api.GET('/api/matches/{match_id}', { params: { path: { match_id: matchId } } })),
+  })
+}
+
 /**
  * Start a match. Resolves to the created match, whose `id` is where to go next.
  *

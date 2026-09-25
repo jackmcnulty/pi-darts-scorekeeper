@@ -72,6 +72,29 @@ class VisitState:
 
 
 @dataclass(frozen=True, slots=True)
+class LegHistory:
+    """Every visit of one leg, oldest first -- what a match detail screen reads.
+
+    `LegState` carries only `current_visit` and `previous_visit`, because a board
+    draws the throw in progress and the recap line above it and has no use for
+    the twenty visits before them. #26's dart-by-dart breakdown does, and no
+    sequence of `/state` reads can reconstruct them: the two it exposes move on
+    with the leg. So this is the same projection over the whole leg.
+
+    `visits` is every visit the leg has, including busted ones. A bust is not an
+    absence -- those darts were thrown and count toward darts-thrown -- and
+    `VisitState.is_bust` with `DartState.counted` is what says so.
+    """
+
+    leg_id: int
+    leg_index: int
+    starting_team_id: int
+    winner_team_id: int | None
+    is_complete: bool
+    visits: tuple[VisitState, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TeamLegState:
     """One team's position in the current leg.
 

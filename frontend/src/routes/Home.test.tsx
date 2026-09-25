@@ -175,13 +175,15 @@ describe('the resume card', () => {
 })
 
 describe('the way on to everything else', () => {
-  it('offers a new match, the player list and the statistics', async () => {
+  it('offers a new match, the player list, the history and the statistics', async () => {
     servesMatches([])
     renderApp('/')
 
     for (const [name, href] of [
       ['New match', '/setup'],
       ['Players', '/players'],
+      // #26 added this one: /history was reachable only by typing the URL.
+      ['History', '/history'],
       ['Stats', '/stats'],
     ]) {
       expect(await screen.findByRole('link', { name })).toHaveAttribute('href', href)
@@ -201,7 +203,8 @@ describe('the way on to everything else', () => {
     expect(token).toBe('56px')
 
     const links = screen.getAllByRole('link')
-    expect(links).toHaveLength(4)
+    // Resume card, New match, Players, History, Stats.
+    expect(links).toHaveLength(5)
     for (const link of links) {
       expect(getComputedStyle(link).getPropertyValue('min-height').trim()).toBe('var(--touch-min)')
     }

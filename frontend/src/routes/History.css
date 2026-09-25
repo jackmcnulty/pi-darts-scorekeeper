@@ -1,0 +1,124 @@
+.history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  /* RootLayout owns the notch and nothing else; the gutter is the screen's,
+     the same way Home.css has it. */
+  padding: var(--space-6);
+}
+
+.history__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.history__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.history__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A link, not a button: a match is an address, and a long-press should offer to
+ * open it. The 56px floor from #4 applies exactly as it does to a Button. */
+.history__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--touch-min);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.history__row:active {
+  background: var(--color-surface-pressed);
+}
+
+.history__row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* Takes the slack so the meta column keeps its width; `min-width: 0` is what
+     lets the ellipsis below actually apply inside a flex item. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.history__row-title {
+  font-family: var(--font-numeric);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.history__row-players,
+.history__row-date {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history__row-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  flex: none;
+}
+
+/* Criterion 6: abandoned has to be visibly distinct from complete. The word
+ * differs too -- see `matches/history.ts:statusLabel` -- because a colour is not
+ * a distinction to somebody who cannot see it. */
+.history__status {
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.history__status--complete {
+  background: var(--color-surface-raised);
+  color: var(--color-success);
+  border: 1px solid var(--color-success);
+}
+
+.history__status--abandoned {
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border-strong);
+}
+
+.history__status--in_progress {
+  background: var(--color-surface-raised);
+  color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.history__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.history__count {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}

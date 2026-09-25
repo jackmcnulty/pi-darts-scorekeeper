@@ -60,6 +60,8 @@ export default defineConfig({
         // Play-state payloads for #24's tests to render against. Scaffolding
         // for the same reason, and named in the same three places.
         'src/play/statefixture.ts',
+        // History, detail and stats payloads for #26's tests. Same bargain.
+        'src/matches/historyfixture.ts',
         'src/vite-env.d.ts',
         // The two files that exist only to be wired up, and cannot run under
         // jsdom: main.tsx needs a real document to mount into, and sw.ts

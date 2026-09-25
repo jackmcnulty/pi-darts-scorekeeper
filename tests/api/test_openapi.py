@@ -19,6 +19,7 @@ def test_the_schema_is_served_under_api(client: TestClient) -> None:
         "/api/matches/{match_id}",
         "/api/matches/{match_id}/abandon",
         "/api/matches/{match_id}/state",
+        "/api/matches/{match_id}/darts",
         "/api/legs/{leg_id}/darts",
         "/api/legs/{leg_id}/undo",
         "/api/legs/{leg_id}/checkout",

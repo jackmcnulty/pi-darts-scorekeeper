@@ -22,7 +22,9 @@ import { CricketMockup } from './style/mockups/CricketMockup'
 import { SetupMockup } from './style/mockups/SetupMockup'
 import { X01Mockup } from './style/mockups/X01Mockup'
 import { StyleGuide } from './style/StyleGuide'
+import { History } from './routes/History'
 import { Home } from './routes/Home'
+import { MatchDetail } from './routes/MatchDetail'
 import { NotFound } from './routes/NotFound'
 import { Placeholder } from './routes/Placeholder'
 import { Play } from './routes/Play'
@@ -42,8 +44,11 @@ export default function App() {
             reads `config.game_type` and gives a cricket match a notice naming
             #25, rather than drawing an x01 board for a game that has none. */}
         <Route path="play/:matchId" element={<Play />} />
-        <Route path="history" element={<Placeholder title="History" ticket="#26" />} />
-        <Route path="history/:matchId" element={<Placeholder title="Match" ticket="#26" />} />
+        {/* #21 mounted both of these as placeholders at exactly these paths, so
+            that "reloading /history/42 loads that screen" was testable before
+            the screen existed. #26 replaces them in place. */}
+        <Route path="history" element={<History />} />
+        <Route path="history/:matchId" element={<MatchDetail />} />
         <Route path="stats" element={<Placeholder title="Stats" ticket="#27" />} />
 
         <Route path="style" element={<StyleGuide />} />

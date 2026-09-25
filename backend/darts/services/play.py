@@ -378,6 +378,35 @@ def _visits(
     return _visit_state(visits[-1], darts), previous
 
 
+def history(conn: sqlite3.Connection, match_id: int) -> tuple[public.LegHistory, ...]:
+    """Every leg of a match with every visit in it, in playing order.
+
+    A read, not a replay: `_visit_state` is fed the stored rows, exactly as
+    `_visits` feeds it the last two. Sharing that builder is the point -- a
+    second projection of a dart would be a second place for `counted` and
+    `caused_bust` to mean something slightly different, and those two flags are
+    the whole of what #26 renders a bust from.
+
+    Nothing here is withheld for an abandoned match. Its darts were thrown and
+    are worth reading; it is only the *actionable* half of `/state` that an
+    abandoned match has to withhold, and there is none of that here.
+    """
+    histories = []
+    for leg in legs_for_match(conn, match_id):
+        darts = darts_for_leg(conn, leg.id)
+        histories.append(
+            public.LegHistory(
+                leg_id=leg.id,
+                leg_index=leg.leg_index,
+                starting_team_id=leg.starting_team_id,
+                winner_team_id=leg.winner_team_id,
+                is_complete=leg.completed_at is not None,
+                visits=tuple(_visit_state(visit, darts) for visit in visits_for_leg(conn, leg.id)),
+            )
+        )
+    return tuple(histories)
+
+
 def _thrower_state(board: Board, leg: LegState) -> public.Thrower | None:
     if leg.next_thrower is None:
         return None

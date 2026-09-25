@@ -1,0 +1,140 @@
+/* The completion sheets. `Sheet.css` owns the panel, the scrim and the grabber;
+ * everything here is the contents. `csheet` rather than `sheet` so the two
+ * cannot collide on a class name. */
+
+/* The sections, spaced. `.sheet__body` stacks its children as plain blocks with
+ * no rhythm of its own, which left "X throws first in leg 2" flush against the
+ * Continue button -- measured at 402x781, where the two edges met exactly. The
+ * gap lives here rather than in `Sheet.css` because it is a fact about what this
+ * screen puts in the sheet, not about sheets. */
+.csheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.csheet__winner {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+
+.csheet__caption {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.csheet__checkout {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.csheet__darts-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.csheet__dart {
+  min-width: 3.5rem;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  text-align: center;
+}
+
+.csheet__tally,
+.csheet__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.csheet__tally-row,
+.csheet__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.csheet__tally-row--winner {
+  border: 1px solid var(--color-primary);
+}
+
+.csheet__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.csheet__legs,
+.csheet__figure {
+  flex: none;
+  font-family: var(--font-numeric);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.csheet__darts {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.csheet__stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.csheet__next {
+  margin: 0;
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.csheet__actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* A link, not a button: it is an address, and the 56px floor applies to it
+ * exactly as it does to a Button. `Home.css` has the same note. */
+.csheet__link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--touch-min);
+  padding: 0 var(--space-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  text-decoration: none;
+}
+
+.csheet__link:active {
+  background: var(--color-surface-pressed);
+}
