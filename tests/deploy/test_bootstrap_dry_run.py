@@ -29,6 +29,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "bootstrap-pi.sh"
 EXAMPLE_ENV = REPO_ROOT / "deploy" / "darts.env.example"
+COMPOSE_FILE = REPO_ROOT / "deploy" / "compose.yaml"
 
 #: The uid/gid baked into deploy/Dockerfile, and `pi` on Raspberry Pi OS.
 CONTAINER_OWNER = "1000:1000"
@@ -123,6 +124,36 @@ def test_dry_run_plans_the_bind_mount_directories(dry_run) -> None:
 def test_dry_run_installs_the_env_file_from_the_committed_example(dry_run) -> None:
     run = dry_run("--dry-run")
     assert run.planned("cp", str(EXAMPLE_ENV), str(run.root / "etc/darts/darts.env"))
+
+
+def test_dry_run_installs_the_compose_file(dry_run) -> None:
+    """The file `deploy.sh` drives the container with.
+
+    It lives on the host, installed here, so that a deploy needs no source
+    checkout on the Pi and no write access to /etc -- which is what keeps a
+    deploy from ever needing sudo, and therefore from leaving WAL sidecars the
+    container cannot write.
+    """
+    run = dry_run("--dry-run")
+    assert run.planned("cp", str(COMPOSE_FILE), str(run.root / "etc/darts/compose.yaml"))
+
+
+def test_the_compose_file_is_replaced_on_every_run(dry_run, tmp_path: Path) -> None:
+    """Unlike `darts.env`, and the difference is the point.
+
+    `darts.env` is the operator's file, so a re-run must not clobber their
+    edits. `compose.yaml` is a repository artefact and the only correct copy is
+    the current one -- so re-running bootstrap is how a changed compose.yaml
+    reaches an already-bootstrapped Pi. Same reasoning as the `chown`s.
+    """
+    existing = tmp_path / "etc/darts"
+    existing.mkdir(parents=True)
+    (existing / "compose.yaml").write_text("stale\n")
+    (existing / "darts.env").write_text("edited by hand\n")
+
+    run = dry_run("--dry-run")
+    assert run.planned("cp", str(COMPOSE_FILE), str(run.root / "etc/darts/compose.yaml"))
+    assert run.planned("skip", "darts.env"), "the env file must still be left alone"
 
 
 def test_dry_run_plans_docker_engine_and_the_compose_plugin(dry_run) -> None:

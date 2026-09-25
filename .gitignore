@@ -20,3 +20,9 @@ htmlcov/
 # Local editor/agent scratch, not project config
 .claude/settings.local.json
 .claude/launch.json
+# Per-ticket handoff notes. Ignored rather than merely uncommitted because
+# scripts/deploy.sh refuses to deploy a dirty worktree -- the image is stamped
+# with HEAD's sha and must not claim to be a commit it is not -- and an
+# untracked file here would otherwise mean every real deploy needs
+# --allow-dirty, which is exactly the check being defeated.
+.claude/*.md
