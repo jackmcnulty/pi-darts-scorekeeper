@@ -473,6 +473,25 @@ unchanged**, and the three seeded players kept identical ids and `created_at`.
 > WAL, which folds committed frames into the main file — the data is the same,
 > the file is not. Compare contents, not bytes.
 
+### The tag budget survives a failure
+
+Re-run after the drill, because a failed deploy is the path where the ordinary
+prune never executes:
+
+```
+docker image ls darts --format '{{.Tag}}' | grep -v '^latest$' | wc -l
+```
+
+**Expect 5**, and the failed sha to be gone — `deploy.sh` deletes the broken
+image once the rollback is confirmed healthy. Measured: 5 tags after a failed
+drill, `darts:<broken sha>` absent, previous sha serving.
+
+The first version of this left **six**. The prune never ran, because the
+rollback path exits non-zero, and simply moving the prune onto that path would
+have been worse: it protects the sha being deployed, which there is the broken
+build, and that is also the newest image — so a newest-first prune would have
+kept the one artefact known to be bad and culled a working one to fit it.
+
 ### What this drill does not cover
 
 - A **bad migration**, as opposed to a broken image. Rollback restores the

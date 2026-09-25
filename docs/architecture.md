@@ -543,6 +543,15 @@ rest of the list. Pruning deleted one image instead of three, exited 0, and left
 six tags on a box whose budget is five. The list is collected into an array
 before anything talks to the target.
 
+And a fifth, about the budget rather than the mechanics: **a failed deploy never
+reaches the prune**, because the rollback path exits non-zero, so one failed
+drill also left six tags. Moving the prune onto that path would have been worse
+than leaving it — `prune_images` protects the sha being deployed, which there is
+the broken build, and it is the newest image, so a newest-first prune would keep
+the one artefact known to be bad and cull a working one to fit it. The broken
+image is deleted outright instead, once the rollback is confirmed healthy. It
+costs nothing: the image is reproducible from the sha the error names.
+
 #### What is decided in a pure function, and why
 
 `scripts/deploy-lib.sh` holds rollback selection, tag pruning and build
