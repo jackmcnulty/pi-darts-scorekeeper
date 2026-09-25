@@ -151,6 +151,23 @@ describe('the history list', () => {
     expect(await screen.findByText('1–1 of 1')).toBeInTheDocument()
   })
 
+  it('offers three filters, not four', async () => {
+    // A fourth does not fit at 402px: `SegmentedControl` gives each option 83px
+    // and "Abandoned" needs 98, so the label overflowed its own button. Measured
+    // in a browser -- jsdom does no layout and the four-option version passed
+    // every test in this file. Pinned here so it is not quietly re-added.
+    servesHistory(many(3))
+    renderApp('/history')
+    await screen.findByText('1–3 of 3')
+
+    expect(screen.getAllByRole('radio')).toHaveLength(3)
+    expect(screen.getAllByRole('radio').map((o) => o.textContent)).toEqual([
+      'All',
+      'Complete',
+      'Abandoned',
+    ])
+  })
+
   it('sends no status at all for "All", because every status is its absence', async () => {
     const asked = servesHistory(many(3))
     renderApp('/history')

@@ -1145,3 +1145,111 @@ and all three cell states, with no disagreement between a cell and the payload
 it was built from, and no `quick` leg carrying points. A development-time
 measurement rather than a committed test, for #23's reason: a committed one
 would mean a backend test file for a frontend ticket.
+
+### Leg/match complete sheets, history and match detail (#26)
+
+Four of #26's six criteria were buildable against the API as it stood. One was
+not, and settling that decided the shape of the ticket.
+
+#### The dart-by-dart view needed a route that did not exist
+
+Criterion 3 asks that "the dart-by-dart view renders busted visits struck
+through with an explicit bust marker". No endpoint returned darts.
+`GET /matches/{id}/state` carries `current_visit` and `previous_visit` of the
+current leg only, and both move on as the leg does, so a finished leg's visits
+are on no later response — no sequence of reads reconstructs them.
+`/stats/matches/{id}` is one line per player per leg, with no visits.
+`/export/darts.csv` was the only per-dart data leaving the server.
+
+The alternative was to parse that CSV in the browser. It was rejected for the
+reason #24 widened the backend rather than have the client derive a second
+three-dart average: it would have meant a second parser and a second
+client-side definition of `counted` and `caused_bust`, against a header whose
+own docstring calls it a published contract for spreadsheets.
+
+So `GET /api/matches/{match_id}/darts` was added — read-only, no migration,
+`services.play.history`. It is `_visits` without the last-two truncation and
+reuses `_visit_state`/`_dart_state` verbatim, so there is one projection of a
+dart rather than two. The route reuses `VisitResponse`, which means the
+generated client gives the history screen the same dart type the play screen
+already had. Unpaginated on purpose: the grain is one match, bounded by
+`best_of`. It is the match *list* that #26 pages.
+
+#### The sheet branch is read off the payload, not computed
+
+Criterion 1 — the deciding leg shows the match sheet, not the leg sheet — is a
+branch the server has already decided, and `play/sheet.ts` reads it:
+
+* a non-deciding leg win is the one response in a match with a non-null
+  `active_leg`, because `services.play` opened the next leg on the winning dart;
+* a deciding leg win opens no next leg, so `active_leg` is null and
+  `is_complete` is true instead.
+
+The two are mutually exclusive on the payload, so nothing counts legs towards
+`best_of`. A client that did would have to know that a best-of-11 can end at
+leg 6 or at leg 11 depending on how the legs fell.
+
+`legInPlay` was left alone, which #24 asked for. The board behind a leg sheet is
+already the new leg, so "continue" is a dismissal rather than a state change:
+there is no "start next leg" call and none is needed, and criterion 2's correct
+starting team is displayed from `active_leg.next_thrower` rather than alternated
+client-side. `components/Sheet.tsx` gets its first consumer since #4.
+
+#### The leg sheet is transient; the match sheet is not
+
+`active_leg` is non-null for exactly one response, so the leg sheet appears on
+the winning dart and cannot return after a reload — the visit that finished the
+leg is on no later response. That asymmetry is deliberate and was ruled on
+rather than worked around: the sheet is a moment, not a destination, and
+criterion 5's "survives a page refresh" is about match detail. What survives is
+the result itself, in the tally and in `/stats`, and every dart on the detail
+screen. The match sheet does come back, because `is_complete` is durable.
+
+Per-player leg averages come from `/stats`, not from `TeamLegResponse` — that
+one is per *team*, and #26 asks for per player.
+
+#### Saying "these darts counted but scored nothing" three ways
+
+A strike-through alone reads as deletion — as though the darts were taken back,
+which is what an *undo* would have done and the opposite of what a bust means.
+So a busted visit carries the darts struck through, an explicit `BUST` marker so
+the strike is not the only signal and is not carried by colour, and the dart
+count stated beside it and deliberately outside the struck-through run, because
+that is the clause the strike would otherwise contradict.
+
+#### Measured at development time
+
+Twelve real matches were driven to completion through the API at every best-of
+the schema allows, under both start rules: `fixed`, where one team sweeps and
+the match is decided as early as it can be, and `alternate`, where the teams
+trade legs and it goes the distance. 855 responses were checked, and on every
+one the sheet branch fired on exactly the leg it should — leg sheets on every
+completed leg before the decider with distinct leg ids, exactly one match sheet,
+never a leg sheet on a completed match and never a match sheet with a next leg
+to throw into. A development-time measurement rather than a committed test, for
+#23's reason.
+
+#### What the browser caught that jsdom could not
+
+Both were invisible to 544 passing tests. The status filter was four options
+wide; at 402px `SegmentedControl` gives each 83px and "Abandoned" needs 98, so
+the label overflowed its own button. It is three options now — "Playing" was the
+one to lose, since a match in progress is still in the unfiltered list and the
+way back into one is the home screen's resume card. And `Sheet`'s body stacks
+its children as plain blocks with no rhythm, which left "X throws first in leg 2"
+flush against the Continue button, their edges meeting exactly. The gap lives in
+`CompletionSheet.css` rather than `Sheet.css`, because it is a fact about what
+this screen puts in a sheet rather than about sheets.
+
+Both sheets and both new screens were checked at 402×781 in Chrome: no
+horizontal overflow, nothing clipped, both sheets inside the viewport without
+scrolling, and both sheet actions on the 56px floor. Verified in a real browser,
+not on the device; it joins #32.
+
+#### Two things this touched outside its own screens
+
+`describeMatch` and `opponents` moved out of `Home.tsx` into
+`matches/history.ts` rather than being copied, so "what do we call a 501
+best-of-5" has one definition. And the home screen gained a History link: #22
+left `/history` reachable only by typing the URL, and criterion 5 only asks for
+a deep link, but a list nobody can reach by tapping is not a screen.

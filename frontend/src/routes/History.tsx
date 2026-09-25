@@ -33,10 +33,22 @@ import './History.css'
  */
 type FilterValue = 'all' | MatchStatus
 
+/**
+ * Three, not four.
+ *
+ * A fourth ("Playing") does not fit: at 402px `SegmentedControl` gives each
+ * option 83px and "Abandoned" needs 98, so the label overflowed its own button
+ * -- measured in a browser, because jsdom does no layout and the four-option
+ * version passed every test. Three leaves ~117px each and fits.
+ *
+ * "Playing" is the one to lose. A match in progress is still in the unfiltered
+ * list with its own badge, and the way back into one is the home screen's
+ * resume card rather than a filter on a history of finished games. The
+ * distinction #26 actually asks for is complete vs abandoned, and both are here.
+ */
 const FILTERS: { value: FilterValue; label: string }[] = [
   { value: 'all', label: 'All' },
   { value: 'complete', label: 'Complete' },
-  { value: 'in_progress', label: 'Playing' },
   { value: 'abandoned', label: 'Abandoned' },
 ]
 

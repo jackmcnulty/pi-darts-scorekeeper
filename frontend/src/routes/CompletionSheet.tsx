@@ -78,34 +78,40 @@ function MatchBody({ match, onClose }: { match: MatchState; onClose: () => void 
 
   return (
     <Sheet open title="Match complete" onClose={onClose}>
-      {/* No `role="status"`. The sheet is an `aria-modal` dialog with a label, so
-          opening it is already announced; a live region inside it would say the
-          same thing a second time, on top of the board's own end-of-match
-          notice behind it. */}
-      <p className="csheet__winner">{winnerName(match, match.winner_team_id)} won the match</p>
+      {/* `Sheet`'s body stacks its children as plain blocks, so the rhythm
+          between these sections is set here rather than by reaching into
+          `Sheet.css` -- which other screens will use and which has no business
+          knowing what #26 puts in it. */}
+      <div className="csheet">
+        {/* No `role="status"`. The sheet is an `aria-modal` dialog with a label,
+            so opening it is already announced; a live region inside it would say
+            the same thing a second time, on top of the board's own end-of-match
+            notice behind it. */}
+        <p className="csheet__winner">{winnerName(match, match.winner_team_id)} won the match</p>
 
-      <ul className="csheet__tally">
-        {lines.map((line) => (
-          <li
-            key={line.teamId}
-            className={`csheet__tally-row${line.isWinner ? ' csheet__tally-row--winner' : ''}`}
-            aria-label={`${line.name}, ${String(line.legsWon)} ${line.legsWon === 1 ? 'leg' : 'legs'}${line.isWinner ? ', winner' : ''}`}
-          >
-            <span className="csheet__name">{line.name}</span>
-            <span className="csheet__legs tnum">{line.legsWon}</span>
-          </li>
-        ))}
-      </ul>
+        <ul className="csheet__tally">
+          {lines.map((line) => (
+            <li
+              key={line.teamId}
+              className={`csheet__tally-row${line.isWinner ? ' csheet__tally-row--winner' : ''}`}
+              aria-label={`${line.name}, ${String(line.legsWon)} ${line.legsWon === 1 ? 'leg' : 'legs'}${line.isWinner ? ', winner' : ''}`}
+            >
+              <span className="csheet__name">{line.name}</span>
+              <span className="csheet__legs tnum">{line.legsWon}</span>
+            </li>
+          ))}
+        </ul>
 
-      <PlayerLines lines={matchLines(stats.data)} caption="Match average" />
+        <PlayerLines lines={matchLines(stats.data)} caption="Match average" />
 
-      <div className="csheet__actions">
-        <Button variant="secondary" onClick={onClose}>
-          Stay here
-        </Button>
-        <Link className="csheet__link" to={`/history/${String(match.match_id)}`}>
-          See every dart
-        </Link>
+        <div className="csheet__actions">
+          <Button variant="secondary" onClick={onClose}>
+            Stay here
+          </Button>
+          <Link className="csheet__link" to={`/history/${String(match.match_id)}`}>
+            See every dart
+          </Link>
+        </div>
       </div>
     </Sheet>
   )
@@ -126,33 +132,36 @@ function LegBody({
 
   return (
     <Sheet open title={`Leg ${String(due.leg.leg_index + 1)} complete`} onClose={onClose}>
-      {/* No `role="status"`, for the reason given on the match sheet above. */}
-      <p className="csheet__winner">{winnerName(match, due.leg.winner_team_id)} won the leg</p>
+      {/* See `MatchBody` for why the sections are wrapped. */}
+      <div className="csheet">
+        {/* No `role="status"`, for the reason given on the match sheet above. */}
+        <p className="csheet__winner">{winnerName(match, due.leg.winner_team_id)} won the leg</p>
 
-      {darts.length > 0 && (
-        <div className="csheet__checkout" aria-label={`Checkout, ${darts.join(', ')}`}>
-          <span className="csheet__caption">Checkout</span>
-          <span className="csheet__darts-row tnum">
-            {darts.map((label, index) => (
-              <span key={index} className="csheet__dart">
-                {label}
-              </span>
-            ))}
-          </span>
+        {darts.length > 0 && (
+          <div className="csheet__checkout" aria-label={`Checkout, ${darts.join(', ')}`}>
+            <span className="csheet__caption">Checkout</span>
+            <span className="csheet__darts-row tnum">
+              {darts.map((label, index) => (
+                <span key={index} className="csheet__dart">
+                  {label}
+                </span>
+              ))}
+            </span>
+          </div>
+        )}
+
+        <PlayerLines lines={legLines(stats.data, due.leg.leg_id)} caption="This leg" />
+
+        {/* The server already chose who throws; this reports it. See the docstring. */}
+        {next !== null && (
+          <p className="csheet__next">
+            {next.display_name} throws first in leg {due.next.leg_index + 1}
+          </p>
+        )}
+
+        <div className="csheet__actions">
+          <Button onClick={onClose}>Continue</Button>
         </div>
-      )}
-
-      <PlayerLines lines={legLines(stats.data, due.leg.leg_id)} caption="This leg" />
-
-      {/* The server already chose who throws; this reports it. See the docstring. */}
-      {next !== null && (
-        <p className="csheet__next">
-          {next.display_name} throws first in leg {due.next.leg_index + 1}
-        </p>
-      )}
-
-      <div className="csheet__actions">
-        <Button onClick={onClose}>Continue</Button>
       </div>
     </Sheet>
   )
