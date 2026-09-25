@@ -37,7 +37,7 @@ DEPLOY_LIB = REPO_ROOT / "scripts" / "deploy-lib.sh"
 def call(function: str, *args: str) -> list[str]:
     """Source deploy-lib.sh and call one function, returning its stdout lines."""
     quoted = " ".join(shlex.quote(arg) for arg in args)
-    script = f'set -Eeuo pipefail\n. {shlex.quote(str(DEPLOY_LIB))}\n{function} {quoted}\n'
+    script = f"set -Eeuo pipefail\n. {shlex.quote(str(DEPLOY_LIB))}\n{function} {quoted}\n"
     result = subprocess.run(
         ["bash", "-c", script],
         capture_output=True,

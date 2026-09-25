@@ -67,7 +67,8 @@ class Plan:
         for position, line in enumerate(self.lines):
             if all(fragment in line for fragment in fragments):
                 return position
-        raise AssertionError(f"no planned action matching {fragments} in:\n" + "\n".join(self.lines))
+        plan = "\n".join(self.lines)
+        raise AssertionError(f"no planned action matching {fragments} in:\n{plan}")
 
     def planned(self, *fragments: str) -> bool:
         return any(all(f in line for f in fragments) for line in self.lines)
