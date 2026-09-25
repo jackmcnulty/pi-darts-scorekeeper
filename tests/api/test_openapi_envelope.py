@@ -45,7 +45,7 @@ def operations(schema: dict[str, Any]) -> list[tuple[str, str, dict[str, Any]]]:
 
 def test_there_are_operations_to_check(schema: dict[str, Any]) -> None:
     """Guards every loop below: an empty schema would pass all of them."""
-    assert len(operations(schema)) == 23
+    assert len(operations(schema)) == 24
 
 
 def test_every_failure_response_is_the_envelope(schema: dict[str, Any]) -> None:

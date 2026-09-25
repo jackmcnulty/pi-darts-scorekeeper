@@ -293,6 +293,40 @@ export interface paths {
     patch?: never
     trace?: never
   }
+  '/api/matches/{match_id}/darts': {
+    parameters: {
+      query?: never
+      header?: never
+      path?: never
+      cookie?: never
+    }
+    /**
+     * Get Match Darts
+     * @description Every dart of a match, by leg and visit, for #26's dart-by-dart breakdown.
+     *
+     *     The one thing `/state` structurally cannot answer. It carries two visits of
+     *     the current leg, and both move on as the leg does; a finished leg's visits
+     *     are not on any later response. Deriving them from a sequence of reads would
+     *     mean a client recording state it was never promised, so this is a read of
+     *     the rows instead.
+     *
+     *     404 for a match that does not exist. An abandoned or in-progress match
+     *     answers normally -- a part-played leg is simply shorter -- because reading
+     *     darts is not acting on them, and #17's refusals are about the latter.
+     *
+     *     Read-only, and deliberately not paginated: the grain is one match, whose
+     *     darts are bounded by `best_of`. It is the *match list* that #26 pages, not
+     *     one match's darts.
+     */
+    get: operations['get_match_darts_api_matches__match_id__darts_get']
+    put?: never
+    post?: never
+    delete?: never
+    options?: never
+    head?: never
+    patch?: never
+    trace?: never
+  }
   '/api/matches/{match_id}/state': {
     parameters: {
       query?: never
@@ -701,6 +735,28 @@ export interface components {
       /** Three Dart Average */
       three_dart_average: number | null
     }
+    /**
+     * LegHistoryResponse
+     * @description One leg's complete visit list, for the dart-by-dart breakdown.
+     *
+     *     `visits` is `VisitResponse`, the same model `/state` uses for the visit being
+     *     thrown -- so a client has one dart type and one bust flag across both
+     *     screens rather than a second vocabulary for the same row.
+     */
+    LegHistoryResponse: {
+      /** Is Complete */
+      is_complete: boolean
+      /** Leg Id */
+      leg_id: number
+      /** Leg Index */
+      leg_index: number
+      /** Starting Team Id */
+      starting_team_id: number
+      /** Visits */
+      visits: components['schemas']['VisitResponse'][]
+      /** Winner Team Id */
+      winner_team_id: number | null
+    }
     /** LegLineResponse */
     LegLineResponse: {
       /** Darts Thrown */
@@ -743,6 +799,16 @@ export interface components {
       teams: components['schemas']['TeamLegResponse'][]
       /** Winner Team Id */
       winner_team_id: number | null
+    }
+    /**
+     * MatchHistoryResponse
+     * @description Every dart of a match, grouped the way it was thrown.
+     */
+    MatchHistoryResponse: {
+      /** Legs */
+      legs: components['schemas']['LegHistoryResponse'][]
+      /** Match Id */
+      match_id: number
     }
     /** MatchPage */
     MatchPage: {
@@ -1638,6 +1704,46 @@ export interface operations {
         }
         content: {
           'application/json': components['schemas']['MatchResponse']
+        }
+      }
+      /** @description Validation Error */
+      422: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+      /** @description Any other failure, in the standard error envelope. */
+      default: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['ErrorEnvelope']
+        }
+      }
+    }
+  }
+  get_match_darts_api_matches__match_id__darts_get: {
+    parameters: {
+      query?: never
+      header?: never
+      path: {
+        match_id: number
+      }
+      cookie?: never
+    }
+    requestBody?: never
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown
+        }
+        content: {
+          'application/json': components['schemas']['MatchHistoryResponse']
         }
       }
       /** @description Validation Error */
