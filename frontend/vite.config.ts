@@ -62,6 +62,8 @@ export default defineConfig({
         'src/play/statefixture.ts',
         // History, detail and stats payloads for #26's tests. Same bargain.
         'src/matches/historyfixture.ts',
+        // Player reports and leaderboards for #27's tests. Same bargain again.
+        'src/stats/statsfixture.ts',
         'src/vite-env.d.ts',
         // The two files that exist only to be wired up, and cannot run under
         // jsdom: main.tsx needs a real document to mount into, and sw.ts

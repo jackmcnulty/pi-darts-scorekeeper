@@ -1,0 +1,173 @@
+.pstats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  /* RootLayout owns the notch and nothing else; the gutter is the screen's. */
+  padding: var(--space-6);
+}
+
+.pstats__back {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.pstats__back a {
+  /* The 56px touch floor is for controls; this is an inline text link, so it
+     gets padding for the thumb without becoming a block. */
+  display: inline-block;
+  padding: var(--space-2) 0;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.pstats__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.pstats__note {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.pstats__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.pstats__heading {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/*
+ * Three columns: the metric, then all time, then recent.
+ *
+ * `minmax(0, 1fr)` for the label rather than `1fr`, so a long metric name
+ * ellipsises instead of pushing the two figure columns off a 402px screen. The
+ * figure columns are sized in ch of tabular digits, which is what keeps them from
+ * shuffling between "—" and "57.23".
+ */
+.pstats__grid {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.pstats__head,
+.pstats__line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5ch 6.5ch;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+}
+
+.pstats__head {
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pstats__head > span:not(:first-child),
+.pstats__figure {
+  text-align: right;
+}
+
+.pstats__line + .pstats__line {
+  border-top: 1px solid var(--color-border);
+}
+
+.pstats__label {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pstats__figure {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+}
+
+/* The recent column is the secondary one: same numbers, narrower window. */
+.pstats__figure--recent {
+  color: var(--color-text-secondary);
+}
+
+/* ---- Segment frequency ---- */
+
+.pstats__bars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pstats__bar {
+  display: grid;
+  /* Label and count are fixed so every track starts and ends in the same place;
+     a ranked bar list only reads as ranked if the bars share a baseline. */
+  grid-template-columns: 4.5ch minmax(0, 1fr) 4ch;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.pstats__bar-label {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.pstats__bar-track {
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-raised);
+  overflow: hidden;
+}
+
+/*
+ * The fill's width is `--fraction`, set per bar in the markup.
+ *
+ * `calc(var(--fraction) * 100%)` is the only arithmetic anywhere in #27's render
+ * path, it happens in CSS rather than in JavaScript, and it produces a length
+ * rather than a number anybody reads. See `stats/stats.ts:segmentBars`.
+ */
+.pstats__bar-fill {
+  display: block;
+  height: 100%;
+  width: calc(var(--fraction, 0) * 100%);
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+}
+
+/* A miss is not a segment. It stays in the list because it is where the dart
+ * went, and it is marked so the visual does not imply it is part of the board. */
+.pstats__bar-track--miss .pstats__bar-fill {
+  background: var(--color-text-muted);
+}
+
+.pstats__bar-count {
+  font-family: var(--font-numeric);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-align: right;
+}

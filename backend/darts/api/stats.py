@@ -23,8 +23,21 @@ nothing, so the two blocks are separated whether or not the caller asked.
 **`?since=` cuts on the match's `created_at`**, so a match is never split across
 the boundary -- stats since Monday are whole matches that started on or after
 Monday, not the tail of Sunday night's game.
+
+**`?last_matches=` is the other way of saying recent**, and it counts each
+player's *own* matches. On a player report that is their last N games; on the
+leaderboard it makes a form table, where everybody is ranked over their own last
+N rather than over whichever games happened most recently. #27 asks the stat card
+for a lifetime average beside a recent one, and a count of matches is the honest
+unit for that -- `?since=` cannot say "my last ten games" without first knowing
+when they were. The two compose rather than override.
+
+It is deliberately not on `/matches/{id}`: that report is already one match, so a
+window over matches has nothing to choose, and `extra="forbid"` makes asking for
+one there a 422 rather than a parameter that looks accepted and does nothing.
 """
 
+from dataclasses import replace
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -73,19 +86,45 @@ class Filter(BaseModel):
         )
 
 
-class LeaderboardFilter(Filter):
-    """The same four, plus the threshold.
+class WindowedFilter(Filter):
+    """The same four, plus "only my last N matches".
+
+    A subclass rather than four more fields on `Filter`, because `Filter` is also
+    #20's export filter and the exports have no window: widening the base would
+    quietly add a parameter to `/api/export` that nothing there implements.
+
+    `gt=0` because a window of no matches is not a narrower question, it is an
+    unanswerable one, and a caller who sent `?last_matches=0` meant something
+    else. The absent case is lifetime, which is why the default is None and not
+    #27's ten -- a client asks for a window, it is never imposed on one.
+    """
+
+    last_matches: Annotated[int | None, Field(gt=0)] = None
+
+    def to_stats_filter(self) -> StatsFilter:
+        return replace(super().to_stats_filter(), last_matches=self.last_matches)
+
+
+class LeaderboardFilter(WindowedFilter):
+    """The same five, plus the threshold.
 
     `min_darts` lives in the model rather than beside it because FastAPI only
     expands a Pydantic query model when it is the route's *only* query
     parameter; add a second one and the model silently becomes a scalar
     parameter called `applied` that every request is then missing.
+
+    `min_darts` interacts with `last_matches` and is not adjusted for it: a form
+    table over ten matches holds fewer darts than a lifetime, so the default 50
+    excludes more players. That is the threshold doing its job -- an average over
+    twelve darts is not a rank -- and the caller who wants a shorter window can
+    lower it in the same request.
     """
 
     min_darts: Annotated[int, Field(ge=0)] = DEFAULT_MIN_DARTS
 
 
 FilterDep = Annotated[Filter, Query()]
+WindowedFilterDep = Annotated[WindowedFilter, Query()]
 LeaderboardFilterDep = Annotated[LeaderboardFilter, Query()]
 
 
@@ -96,6 +135,19 @@ class FilterResponse(BaseModel):
     variant: Variant | None
     since: str | None
     match_id: int | None
+
+
+class WindowedFilterResponse(FilterResponse):
+    """The same, plus the window, for the two endpoints that accept one.
+
+    The window is echoed as *asked for*, not as found: a request for ten matches
+    by a player who has played six echoes ten. What the report actually covers is
+    `matches_played`, which the same response carries, and that is the number a
+    screen should put in front of a reader -- "last 6 matches" is true where
+    "last 10 matches" over six would not be.
+    """
+
+    last_matches: int | None
 
 
 class BandsResponse(BaseModel):
@@ -142,10 +194,20 @@ class CricketResponse(BaseModel):
 
 
 class SegmentResponse(BaseModel):
+    """One board segment, and how many darts landed on it.
+
+    `label` is the server's own name for the segment -- "T20", "BULL", "MISS" --
+    the same string `DartResponse` carries, so a client drawing #27's
+    segment-frequency visual reads a name rather than deriving one from `segment`
+    and `multiplier`. There is exactly one place that knows the inner bull is 25
+    doubled, and it is not the frontend.
+    """
+
     model_config = ConfigDict(from_attributes=True)
     segment: int
     multiplier: int
     darts: int
+    label: str
 
 
 class PlayerStatsResponse(BaseModel):
@@ -164,7 +226,7 @@ class PlayerStatsResponse(BaseModel):
 
 
 class PlayerReportResponse(BaseModel):
-    filter: FilterResponse
+    filter: WindowedFilterResponse
     player: PlayerStatsResponse
 
 
@@ -208,7 +270,7 @@ class LeaderboardRowResponse(BaseModel):
 
 
 class LeaderboardResponse(BaseModel):
-    filter: FilterResponse
+    filter: WindowedFilterResponse
     min_darts: int
     ranked_by: Literal["three_dart_average"]
     rows: list[LeaderboardRowResponse]
@@ -228,14 +290,26 @@ def echo_filter(applied: Filter) -> FilterResponse:
     )
 
 
+def echo_windowed_filter(applied: WindowedFilter) -> WindowedFilterResponse:
+    """The same four, plus the window, for the two endpoints that take one."""
+    return WindowedFilterResponse(
+        **echo_filter(applied).model_dump(), last_matches=applied.last_matches
+    )
+
+
 @router.get("/players/{player_id}", response_model=PlayerReportResponse)
 def player_stats(
-    player_id: PlayerId, conn: ConnectionDep, applied: FilterDep
+    player_id: PlayerId, conn: ConnectionDep, applied: WindowedFilterDep
 ) -> PlayerReportResponse:
-    """One player. A player who has never thrown gets zeroes and nulls, not a 404."""
+    """One player. A player who has never thrown gets zeroes and nulls, not a 404.
+
+    `?last_matches=` is #27's "recent": the same report over the player's own last
+    N matches, which is what makes a recent average comparable to the lifetime one
+    beside it -- both are this endpoint, asked twice.
+    """
     stats = service.player_stats(conn, player_id, applied.to_stats_filter())
     return PlayerReportResponse(
-        filter=echo_filter(applied), player=PlayerStatsResponse.model_validate(stats)
+        filter=echo_windowed_filter(applied), player=PlayerStatsResponse.model_validate(stats)
     )
 
 
@@ -246,10 +320,15 @@ def leaderboard(conn: ConnectionDep, applied: LeaderboardFilterDep) -> Leaderboa
     Archived players are left off, following #17's pickers: a leaderboard is a
     thing you are currently on. They keep every other statistic, and their own
     endpoint still answers.
+
+    `?last_matches=` turns this into a form table. The window is per player, so
+    every row covers the same number of that player's matches and the ranking
+    stays a comparison; a window over whichever matches happened most recently
+    would instead rank whoever turned up to them.
     """
     ranking = service.leaderboard(conn, applied.to_stats_filter(), applied.min_darts)
     return LeaderboardResponse(
-        filter=echo_filter(applied),
+        filter=echo_windowed_filter(applied),
         min_darts=ranking.min_darts,
         ranked_by="three_dart_average",
         rows=[LeaderboardRowResponse.model_validate(row) for row in ranking.rows],

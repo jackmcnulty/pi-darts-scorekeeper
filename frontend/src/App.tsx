@@ -7,11 +7,13 @@
  * thing rather than a thing wrapped in a thing.
  *
  * #21 made every path real and every screen a `Placeholder`; #22 replaced the
- * first two with `Home` and `Players`, and #23 replaced `/setup`. The
- * remaining placeholders each name the ticket that replaces them. The paths themselves were the part worth getting
- * right early, because #16's SPA fallback means the server will hand
- * `index.html` to any of them on a cold reload and the client alone has to
- * agree about what they mean.
+ * first two with `Home` and `Players`, #23 replaced `/setup`, #24 and #25
+ * `/play/:matchId`, #26 the two history screens and #27 the last one. There are
+ * no placeholders left, so the component is gone with them -- `NotFound` keeps
+ * its stylesheet, being the one screen that is still a sentence and a link. The
+ * paths themselves were the part worth getting right early, because #16's SPA
+ * fallback means the server will hand `index.html` to any of them on a cold
+ * reload and the client alone has to agree about what they mean.
  *
  * `/style` survives from #4. The style guide and the three mockups are the
  * artefact that was approved on a real iPhone, and they stay reachable on the
@@ -26,11 +28,12 @@ import { History } from './routes/History'
 import { Home } from './routes/Home'
 import { MatchDetail } from './routes/MatchDetail'
 import { NotFound } from './routes/NotFound'
-import { Placeholder } from './routes/Placeholder'
 import { Play } from './routes/Play'
+import { PlayerStats } from './routes/PlayerStats'
 import { Players } from './routes/Players'
 import { RootLayout } from './routes/RootLayout'
 import { Setup } from './routes/Setup'
+import { Stats } from './routes/Stats'
 
 export default function App() {
   return (
@@ -49,7 +52,14 @@ export default function App() {
             the screen existed. #26 replaces them in place. */}
         <Route path="history" element={<History />} />
         <Route path="history/:matchId" element={<MatchDetail />} />
-        <Route path="stats" element={<Placeholder title="Stats" ticket="#27" />} />
+        {/* #21 mounted `stats` as a placeholder too; #27 replaces it and adds the
+            per-player card beside it. The pair mirrors `history` +
+            `history/:matchId` deliberately: a leaderboard row opens a card, and a
+            card is an address somebody can send. Both keep their filters in the
+            query string, so `/stats?game_type=cricket` survives a reload -- which
+            `history` does not do and was not asked to. */}
+        <Route path="stats" element={<Stats />} />
+        <Route path="stats/:playerId" element={<PlayerStats />} />
 
         <Route path="style" element={<StyleGuide />} />
         <Route path="style/x01" element={<X01Mockup />} />

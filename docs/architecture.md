@@ -468,12 +468,28 @@ Three reads, all taking `?game_type=&variant=&since=&match_id=`:
 
 | Route | Returns |
 | --- | --- |
-| `GET /api/stats/players/{id}` | `PlayerReportResponse` — lifetime, within the filter |
-| `GET /api/stats/leaderboard` | `LeaderboardResponse` — ranked, plus `?min_darts=` |
+| `GET /api/stats/players/{id}` | `PlayerReportResponse` — lifetime, within the filter, plus `?last_matches=` |
+| `GET /api/stats/leaderboard` | `LeaderboardResponse` — ranked, plus `?min_darts=` and `?last_matches=` |
 | `GET /api/stats/matches/{id}` | `MatchReportResponse` — per player and per leg |
 
 The metric definitions and the reason the scope is composed rather than bound
 live in [data-model.md](data-model.md#statistics-queries); this is the wiring.
+
+`?last_matches=` was added by #27 and is **each player's own last N matches**, so
+it means the same thing on a one-player report and down a leaderboard column,
+where it makes a form table. It is a `WindowedFilter` subclass rather than a fifth
+field on `Filter`, because `Filter` is also #20's export filter and the exports
+have no window; widening the base would have added a parameter to `/api/export`
+that nothing there implements. The two windowed endpoints echo a
+`WindowedFilterResponse` and the other two still echo `FilterResponse`.
+
+The echo reports the window *asked for*, not the one found: a request for ten
+matches from a player who has played six echoes ten, while `matches_played` on the
+same response says six. A screen labels its column from the latter, because "last
+6 matches" is true where "last 10 matches" over six is not. The window is refused
+on `/matches/{id}` — that report is already one match, so there is no window to
+choose, and `extra="forbid"` makes asking a 422 rather than a parameter that looks
+accepted and quietly does nothing.
 
 `darts.stats` is a query layer beside `darts.repo`, not above it: `queries.py`
 loads and binds the packaged SQL, `report.py` assembles rows into frozen
@@ -1253,3 +1269,148 @@ not on the device; it joins #32.
 best-of-5" has one definition. And the home screen gained a History link: #22
 left `/history` reachable only by typing the URL, and criterion 5 only asks for
 a deep link, but a list nobody can reach by tapping is not a screen.
+
+### Stats screens (#27)
+
+Two screens at `/stats` and `/stats/:playerId`, mirroring `/history` +
+`/history/:matchId`: the leaderboard ranks everybody, a row opens that player's
+card, and both are addresses somebody can send. The last `Placeholder` went with
+them, so the component is gone and `NotFound` keeps its stylesheet.
+
+#### The render path chooses and formats, and never computes
+
+Criterion 1 — "every number on screen maps directly to a field in the
+`/api/stats` response" — is the spine of the ticket and the shape of
+`stats/stats.ts`. A `Metric` is a label, a field and a formatter; `read` takes a
+whole `PlayerStats` and returns a *string*, so there is nowhere to put a
+calculation even if somebody wanted one. Checkout percentage is read from
+`checkout_percentage`, never divided out of `checkouts_hit` and
+`checkout_attempts` — both of which are in the same payload, which is exactly why
+the criterion needs a test rather than a promise.
+
+Two tests make the claim, and they fail differently. The **disagreeing payload**
+is the sharp one: `statsfixture.ts` sets every authoritative figure to a value its
+own ingredients would *not* produce — 5 of 17 checkouts beside a stated 33.3%,
+`3 × points_scored / darts_thrown` of 57.13 beside a stated 57.23 — so a screen
+that divided would put a number on the page that no field backs. The **DOM walk**
+is the broad one: it tokenises every leaf element's text and asserts each number
+is reproducible from some field by formatting alone.
+
+Both were checked against a deliberate violation while being written. That
+mattered: the first version of the walk *passed* an injected
+`(checkouts_hit / checkout_attempts) * 100`, because the fixture's ingredients
+happened to agree with its stated percentage and the computed number was
+indistinguishable from the real one. Making them disagree is what gave the test
+teeth, and it now fails such an injection with `[ '29.4%' ]`.
+
+Tokenising per leaf element rather than over `document.body.textContent` is not
+incidental. The latter glues adjacent cells together — two 660s become "660660" —
+which is the same concatenation that makes every component here build an explicit
+`aria-label`, and it would invent numbers the test then blamed on the render path.
+
+**The bar geometry is not a statistic.** The segment visual sizes each bar with
+`darts / max`, written to a `--fraction` custom property and turned into a length
+by CSS. It is arithmetic, and it is deliberately outside the criterion: no number
+a reader sees comes from it, the walk is over text nodes, and a test asserts the
+fraction never reaches the document as text. Jack ruled on this before it was
+built; the alternative was a purely categorical visual with no proportional
+sizing.
+
+**The rank is not computed either.** Rows arrive in the server's order and are
+rendered in an `<ol>`, so the position *is* the rank — conveyed structurally to a
+screen reader and drawn for everybody else by a CSS counter. `index + 1` would
+have been the one number on the page that no field of the response backs.
+
+#### "Recent" needed a filter that did not exist
+
+Scope asks for a 3-dart average "lifetime and recent", and #19 had no way to say
+it: `?since=` is a date, and "my last ten games" is a count. `_PREDICATES` was a
+closed set of column comparisons with nothing in it that could express a window.
+
+So the window was added to #19's SQL layer rather than approximated here — a
+recent average computed in the client is precisely what criterion 1 forbids. See
+[data-model.md](data-model.md#the-one-predicate-that-is-not-a-column-comparison)
+for why it is a pair set and why it is ranked once rather than correlated. The
+card asks the same endpoint twice, unwindowed and windowed, so both columns are
+the server's own calculation over different scopes.
+
+The column heading comes from `matches_played` *inside* the window, not from the
+ten that were asked for: a player who has played five sees "Last 5 matches",
+which is true, rather than "Last 10", which is not. Measured against a real
+database, that is exactly what it says.
+
+The leaderboard takes the same window and becomes a form table. Per player, so
+every row covers the same number of that player's own matches and the column
+stays a comparison — a window over whichever matches happened most recently would
+instead rank whoever turned up to them.
+
+#### Both filters round-trip through the query string
+
+Criterion 2 is a claim about the address, not about the control, so both screens
+use `useSearchParams` and the tests either open a filtered address and check the
+request that went out, or tap a filter and check the address that came back. A
+test that only asserted the control looked right would pass for a `useState`
+implementation.
+
+The default is *removed* rather than written, so the plain `/stats` stays clean;
+`replace` keeps a filter tap out of the back stack; and an unparseable
+`?game_type=x02` renders the unfiltered table rather than sending a request that
+would 422. #26's history filter is `useState` and deliberately not linkable —
+its criterion only asked for the match-detail deep link — so the two screens
+differ on purpose.
+
+#### Two empty states, because they are two different facts
+
+"Nobody has thrown 50 x01 darts yet" is a threshold that has not been met: the
+server hides players under `min_darts`, so a new player legitimately has no row,
+and the message names the threshold the response actually applied. That is not
+the same as a player who has never thrown, who gets a sentence on their own card
+instead of a grid of em dashes.
+
+Neither is about guarding a division. The server sends `null` for every average
+it has no darts to compute, so "not `NaN`" is satisfied by rendering null as an
+em dash — and a zero still renders as `0.00`, because a player who threw and
+scored nothing has facts. If a `NaN` ever appears, the render path did arithmetic
+it was not supposed to.
+
+#### One small addition to #19's contract
+
+`SegmentResponse` gained a `label`. `engine.throws.Throw` is the one place that
+knows the inner bull is 25 doubled and that a miss is not on the board at all,
+and `DartResponse` already carries its output; without this the visual would have
+had to name segments itself, in a second language, from `segment` and
+`multiplier`. `services.play` and #20's `darts.csv` both take the name from
+`Throw` rather than spelling it again, and so does this.
+
+#### The visual is a ranked list because the data is
+
+`segment_frequency` is a `GROUP BY` ordered by `count(*) DESC`, so it arrives
+already ranked and **sparse** — a segment nobody has hit has no row at all. A
+board map would have to invent the missing rows as zeroes and then draw sixty-two
+mostly empty cells on a 402px phone. A ranked bar list says the same thing in the
+order the query already established, absence means no bar, and it is truncated to
+twelve because the tail of a long history is a hundred segments hit once each.
+
+A miss is a row like any other and is kept rather than dropped: "where darts
+actually land" includes off the board, and discarding the misses would flatter
+every player. It is drawn in a different colour so the visual does not imply it
+is part of the board.
+
+#### What the browser caught that jsdom could not
+
+The leaderboard row carried four stats and did not fit. Measured at 402px: the
+detail line had 197px and the four-stat version needed 242, so the checkout
+percentage rendered as a clipped "100.0…" with its own label cut off entirely —
+worse than absent. The row now shows darts thrown and maximums, which fit in
+119px and give a ranking position its context; the checkout figures are on the
+card, where they have room to be labelled.
+
+Criterion 1 was also measured rather than asserted. Five real 501 matches were
+driven through `POST /api/legs/{id}/darts` — 416 darts, dart by dart, exactly as
+the play screen records them — and then every figure on both screens was read out
+of the DOM in Chrome at 402×781 and compared against the live `/api/stats`
+response: 3 leaderboard rows, 16 metrics across two columns, 7 per-target hit
+rates, 12 segment bars with their labels, counts and fractions, both filtered
+views and the form table. All matched, nothing overflowed the 402px content box,
+and no `NaN` appeared. Verified in a real browser, not on the device; it joins
+#32.

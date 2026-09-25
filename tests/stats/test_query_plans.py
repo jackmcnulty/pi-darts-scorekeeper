@@ -15,7 +15,12 @@ like, without going red because a runner was busy.
 
 Measured on the development machine when this was written, the slowest query was
 the unfiltered leaderboard at roughly 25 ms and every player-scoped query was
-under 3 ms.
+under 3 ms. #27 added `?last_matches=`, measured the same way: a windowed player
+card is 0.10-0.50 ms and a windowed leaderboard 3.6 ms, the latter *faster* than
+the 24 ms lifetime leaderboard it narrows, because the window cuts the dart set
+before anything is averaged. That ordering is not asserted -- a ratio between two
+wall-clock numbers is still two wall-clock numbers -- but the windowed scopes are
+in `SCOPES`, so the plan and the budget both cover them.
 """
 
 import re
@@ -98,6 +103,20 @@ def _scopes() -> list[tuple[str, str, dict[str, Any]]]:
             "leaderboard/filtered",
             "leaderboard",
             StatsFilter(game_type="x01", since="2026-02-01T10:00:00.000Z").params(min_darts=50),
+        ),
+    ]
+    # #27's window, at both scopes that accept one. Held to the same criteria as
+    # everything else: the per-player top-N is the one predicate that is a
+    # subquery rather than a column comparison, so it is the one most able to
+    # turn a seek into a scan.
+    window = StatsFilter(last_matches=10)
+    scopes += [(f"window/{name}", name, window.params(player_id=3)) for name in per_player]
+    scopes += [
+        ("window/leaderboard", "leaderboard", window.params(min_darts=50)),
+        (
+            "window/leaderboard/filtered",
+            "leaderboard",
+            StatsFilter(game_type="x01", last_matches=10).params(min_darts=50),
         ),
     ]
     return scopes
@@ -201,6 +220,46 @@ def test_every_query_stays_inside_the_time_budget(
     assert elapsed < BUDGET_MS * CI_MULTIPLIER, (
         f"{label} took {elapsed:.1f} ms, more than {CI_MULTIPLIER}x the {BUDGET_MS} ms budget"
     )
+
+
+def test_the_recent_window_is_built_once_and_probed_not_correlated(
+    bulk: tuple[sqlite3.Connection, BulkSize],
+) -> None:
+    """What makes `?last_matches=` affordable, and the claim `queries.py` makes.
+
+    A per-player top-N written as a subquery correlated on the outer alias is
+    re-evaluated once per candidate dart. Ranking every player's matches once and
+    letting the outer query probe the result instead plans as a `LIST SUBQUERY`,
+    which SQLite builds a single time -- so the window costs one pass over
+    `v_match_players` however many darts it is then filtering.
+    """
+    conn, _ = bulk
+    for name, params in (
+        ("x01_totals", StatsFilter(last_matches=10).params(player_id=3)),
+        ("leaderboard", StatsFilter(last_matches=10).params(min_darts=50)),
+    ):
+        lines = plan(conn, name, params)
+        assert any("LIST SUBQUERY" in line for line in lines), (name, lines)
+        assert not any("CORRELATED LIST SUBQUERY" in line for line in lines), (name, lines)
+        assert scans_a_base_table(lines) == [], (name, lines)
+
+
+def test_a_windowed_player_card_still_seeks_the_membership_index(
+    bulk: tuple[sqlite3.Connection, BulkSize],
+) -> None:
+    """The window's own match list is a seek, not a scan, when a player is named.
+
+    `team_members_player (player_id, team_id)` is #11's index and the reason the
+    window can be composed from the same closed set as everything else: with
+    `:player_id` bound, the inner list is that player's matches only. The
+    leaderboard has no player to seek by and scans the same covering index
+    instead, which is one pass over one row per (match, player).
+    """
+    conn, _ = bulk
+    lines = plan(conn, "x01_totals", StatsFilter(last_matches=10).params(player_id=3))
+    assert any(
+        "SEARCH tm USING COVERING INDEX team_members_player (player_id=?)" in line for line in lines
+    ), lines
 
 
 def test_the_darts_export_needs_no_sorter_even_over_fifty_thousand_rows(

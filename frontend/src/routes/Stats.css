@@ -1,0 +1,108 @@
+.stats {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  /* RootLayout owns the notch and nothing else; the gutter is the screen's, the
+     same way History.css and Home.css have it. */
+  padding: var(--space-6);
+}
+
+.stats__title {
+  margin: 0;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+}
+
+.stats__note,
+.stats__legend {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}
+
+.stats__table {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  /* The counter draws the rank, so the browser's own list markers would be a
+     second one in a different place. */
+  padding: 0;
+  list-style: none;
+  counter-reset: rank;
+}
+
+.stats__rank {
+  counter-increment: rank;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* The rank, drawn from the list position rather than from a number in the
+ * markup. The ordering is the server's; nothing here computes an index. */
+.stats__rank::before {
+  content: counter(rank);
+  flex: none;
+  width: 1.5rem;
+  color: var(--color-text-muted);
+  font-family: var(--font-numeric);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* A link, not a button: a player's card is an address. The 56px floor from #4
+ * applies exactly as it does to a Button. */
+.stats__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: var(--touch-min);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.stats__row:active {
+  background: var(--color-surface-pressed);
+}
+
+.stats__row-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* Takes the slack so the average keeps its width; `min-width: 0` is what lets
+     the ellipsis below actually apply inside a flex item. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stats__name {
+  font-weight: var(--weight-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stats__detail {
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The number the table is ranked by, so it is the one that reads as a figure. */
+.stats__average {
+  flex: none;
+  font-family: var(--font-numeric);
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}

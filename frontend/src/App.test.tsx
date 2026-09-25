@@ -24,6 +24,7 @@ import type { MockInstance } from 'vitest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { match as matchFixture } from './matches/historyfixture'
 import { matchState } from './play/statefixture'
+import { leaderboard } from './stats/statsfixture'
 import { installServer, renderApp, server } from './test-harness'
 
 installServer()
@@ -51,6 +52,10 @@ beforeEach(() => {
     http.get('*/api/matches/:matchId', ({ params }) =>
       HttpResponse.json(matchFixture({ id: Number(params.matchId) })),
     ),
+    // #27's leaderboard. Built per request rather than from a shared constant: a
+    // Response body reads once, and a reused one throws "body object should not
+    // be disturbed" as an unhandled rejection that fails no test in particular.
+    http.get('*/api/stats/leaderboard', () => HttpResponse.json(leaderboard({ rows: [] }))),
   )
 })
 
@@ -72,20 +77,21 @@ describe('the screens that are built', () => {
     ['/setup', 'New match'],
     // #26 replaced this placeholder in place, at the path #21 chose for it.
     ['/history', 'History'],
+    // #27 replaced the last one. There is no `Placeholder` left in the route
+    // table, which is why the component itself is gone.
+    ['/stats', 'Stats'],
   ])('%s routes to the real %s screen, not a placeholder', async (path, title) => {
     openAt(path)
     expect(await screen.findByRole('heading', { name: title })).toBeInTheDocument()
     expect(screen.queryByText(/waiting on/i)).not.toBeInTheDocument()
     expectCleanConsole()
   })
-})
 
-describe('the screens #27 onwards will fill in', () => {
-  it.each([['/stats', 'Stats', '#27']])('%s routes to %s', (path, title, ticket) => {
-    openAt(path)
-    expect(screen.getByRole('heading', { name: title })).toBeInTheDocument()
-    expect(screen.getByText(`Waiting on ${ticket}`)).toBeInTheDocument()
-    expectCleanConsole()
+  it('every route is a real screen now that #27 has landed', () => {
+    // The guard on the claim above: if a future ticket reintroduces a
+    // placeholder, this is the test that notices rather than the sentence.
+    openAt('/stats')
+    expect(screen.queryByText(/waiting on #/i)).not.toBeInTheDocument()
   })
 })
 

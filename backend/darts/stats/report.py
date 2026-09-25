@@ -17,6 +17,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from darts.engine.cricket import TARGETS
+from darts.engine.throws import Throw
 from darts.stats.queries import StatsFilter, run
 
 
@@ -78,11 +79,23 @@ class CricketStats:
 
 @dataclass(frozen=True, slots=True)
 class Segment:
-    """One board segment and multiplier, and how often it was hit."""
+    """One board segment and multiplier, and how often it was hit.
+
+    `label` is the same short form `DartResponse` carries -- "T20", "BULL",
+    "MISS" -- and comes from `engine.throws.Throw`, the one place in the codebase
+    that knows the inner bull from a double. #27 draws a segment-frequency visual
+    and would otherwise have to name these itself, in a second language, from
+    `segment` and `multiplier`; `services.play` and #20's `darts.csv` both take
+    the name from `Throw` rather than spelling it again, and so does this.
+    """
 
     segment: int
     multiplier: int
     darts: int
+
+    @property
+    def label(self) -> str:
+        return Throw(self.segment, self.multiplier).label
 
 
 @dataclass(frozen=True, slots=True)

@@ -18,6 +18,7 @@ from seed import build
 
 from darts.api.main import create_app
 from darts.api.stats import DEFAULT_MIN_DARTS
+from darts.engine.throws import Throw
 
 
 @pytest.fixture
@@ -43,6 +44,7 @@ def test_a_player_report_carries_the_filter_it_applied(seeded_client: TestClient
         "variant": None,
         "since": None,
         "match_id": None,
+        "last_matches": None,
     }
     assert body["player"]["display_name"] == "Ana"
     assert body["player"]["x01"]["best_checkout"] == 121
@@ -67,6 +69,7 @@ def test_filters_compose_over_http(seeded_client: TestClient) -> None:
         "variant": None,
         "since": "2026-01-03T00:00:00.000Z",
         "match_id": None,
+        "last_matches": None,
     }
     assert both["player"]["cricket"]["darts_thrown"] == 0
     assert by_date["player"]["cricket"]["darts_thrown"] > 0
@@ -105,6 +108,11 @@ def test_a_player_who_does_not_exist_is_a_404(seeded_client: TestClient) -> None
         {"match_id": "0"},
         {"match_id": "-1"},
         {"gametype": "x01"},
+        # A window of no matches is not a narrower question, it is an
+        # unanswerable one, so it is refused rather than answered with nothing.
+        {"last_matches": "0"},
+        {"last_matches": "-1"},
+        {"last_matches": "ten"},
     ],
 )
 def test_a_bad_query_parameter_is_a_field_level_422(
@@ -157,6 +165,89 @@ def test_an_archived_player_is_off_the_leaderboard_but_keeps_their_stats(
     body = player(seeded_client, 1)["player"]
     assert body["is_archived"] is True
     assert body["x01"]["best_checkout"] == 121
+
+
+def test_every_segment_carries_the_servers_own_name_for_it(seeded_client: TestClient) -> None:
+    """#27's visual reads a label rather than deriving one from segment x multiplier.
+
+    `Throw.label` is the one place that knows the inner bull is 25 doubled and
+    that a miss is not on the board at all, and `DartResponse` already carries its
+    output. A client naming these itself would be a second implementation of the
+    board in a second language, which is exactly the duplication the label exists
+    to prevent.
+    """
+    seen: set[str] = set()
+    for player_id in range(1, 7):
+        segments = player(seeded_client, player_id)["player"]["segments"]
+        assert segments, f"player {player_id} has thrown darts, so has segments"
+        for entry in segments:
+            assert entry["label"] == Throw(entry["segment"], entry["multiplier"]).label, entry
+            seen.add(entry["label"])
+
+    # The three the derivation could plausibly get wrong are really in the
+    # fixture rather than assumed: a miss, which is not on the board at all, and
+    # the two rings that share segment 25 and are told apart only by multiplier.
+    assert {"MISS", "25", "BULL"} <= seen
+    assert any(label.startswith("D") for label in seen)
+    assert any(label.startswith("T") for label in seen)
+
+
+def test_a_windowed_player_report_covers_that_players_last_matches(
+    seeded_client: TestClient,
+) -> None:
+    """#27's "recent": the same endpoint, asked twice, over a narrower window.
+
+    Ana played matches 1, 2 and 4, so a window of one is match 4 and a window of
+    two is matches 2 and 4. The echo says what was asked for and
+    `matches_played` says what was found, which is the number a screen labels the
+    column with.
+    """
+    lifetime = player(seeded_client, 1)
+    recent = player(seeded_client, 1, last_matches=1)
+    assert lifetime["filter"]["last_matches"] is None
+    assert recent["filter"]["last_matches"] == 1
+    assert lifetime["player"]["matches_played"] == 3
+    assert recent["player"]["matches_played"] == 1
+    assert player(seeded_client, 1, last_matches=2)["player"]["matches_played"] == 2
+    # Wider than the history is the history, not a 422 and not a short report.
+    assert player(seeded_client, 1, last_matches=99)["player"] == lifetime["player"]
+    assert recent["player"]["darts_thrown"] < lifetime["player"]["darts_thrown"]
+
+
+def test_a_windowed_leaderboard_is_a_form_table(seeded_client: TestClient) -> None:
+    """Every row over that player's own last N, so the ranking stays a comparison.
+
+    Ana's, Ben's and Cal's most recent match is cricket and Dee's is the x01 2v2,
+    so a form table over one match ranks only Dee -- the others have no recent
+    x01 form to rank. The lifetime table has all four.
+    """
+    lifetime = seeded_client.get("/api/stats/leaderboard", params={"min_darts": 0}).json()
+    form = seeded_client.get(
+        "/api/stats/leaderboard", params={"min_darts": 0, "last_matches": 1}
+    ).json()
+    assert form["filter"]["last_matches"] == 1
+    assert lifetime["filter"]["last_matches"] is None
+    assert {row["player_id"] for row in lifetime["rows"]} == {1, 2, 3, 4}
+    assert {row["player_id"] for row in form["rows"]} == {4}
+    # And it is still the same ranking, over a different set of darts.
+    assert form["ranked_by"] == "three_dart_average"
+
+
+def test_the_window_is_refused_on_a_match_report(seeded_client: TestClient) -> None:
+    """A report about one match has no window over matches to choose.
+
+    `extra="forbid"` makes this a 422 rather than a parameter that looks accepted
+    and quietly does nothing -- the same reason `?gametype=` is refused.
+    """
+    response = seeded_client.get("/api/stats/matches/2", params={"last_matches": 1})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_the_window_is_refused_on_an_export(seeded_client: TestClient) -> None:
+    """#20's exports share #19's filter model and were deliberately not widened."""
+    response = seeded_client.get("/api/export/stats.json", params={"last_matches": 1})
+    assert response.status_code == 422
 
 
 def test_a_match_report_has_a_line_per_player_and_per_leg(seeded_client: TestClient) -> None:
