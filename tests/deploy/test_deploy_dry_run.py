@@ -214,6 +214,24 @@ def test_the_database_is_reached_through_the_bind_mount(plan: Plan) -> None:
     assert plan.planned("docker run", "-v /var/lib/darts:/var/lib/darts")
 
 
+@pytest.mark.parametrize("interpreter", ["python", "python3", "node", "npm", "uv"])
+def test_no_plan_step_runs_an_interpreter_on_the_target(plan: Plan, interpreter: str) -> None:
+    """The other half of "no Node and no system Python on the Pi".
+
+    Checking that the tools are absent from a host only proves it for that host.
+    What can be asserted anywhere is the deploy's own side of the bargain: no
+    step of it invokes an interpreter on the target. The only Python that runs
+    there is inside the image -- the app, and the HEALTHCHECK's urllib call.
+
+    `uv` is included because preflight does use it, on *this* machine, and the
+    distinction between the two sides of the ssh matters.
+    """
+    remote_steps = [line for line in plan.lines if "on_target" in line or "ssh " in line]
+    assert remote_steps, "expected some remote steps in the plan"
+    offenders = [line for line in remote_steps if re.search(rf"\b{interpreter}\b", line)]
+    assert offenders == [], f"{interpreter} is invoked on the target: {offenders}"
+
+
 # --- The dirty-worktree criterion ------------------------------------------
 
 
