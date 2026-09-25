@@ -324,10 +324,14 @@ run_tests() {
 
 # --- The deploy -------------------------------------------------------------
 
+# The label is not decoration; see list_remote_tags for why it has to exist.
+BUILT_AT_LABEL="org.darts.built-at"
+
 build_image() {
   run docker build \
     -f "${repo_root}/deploy/Dockerfile" \
     --build-arg "GIT_SHA=${SHA}" \
+    --label "${BUILT_AT_LABEL}=$(date -u +%s)" \
     -t "darts:${SHA}" \
     "$repo_root"
 }
@@ -354,22 +358,78 @@ read_running_sha() {
   fi
 }
 
-# Sha tags present on the target, newest first.
+# Sha tags present on the target, most recently built first.
 #
-# `docker image ls` already orders by creation descending, and `docker load`
-# preserves an image's original build time, so this is build order rather than
-# arrival order -- which is what pruning should be reasoning about. `latest` is
-# filtered out because it is an alias for one of these, not a sixth image.
+# The obvious implementation -- `docker image ls`, which sorts by creation
+# descending -- does not work, and the way it fails is silent. Measured on
+# Engine 29.5.2: seven distinct darts images, built from four different commits
+# over twenty minutes, all reported `Created` as
+# 2026-09-25T12:34:10.61878831-04:00. BuildKit takes the config timestamp from
+# the cached parent rather than from when the image was assembled, so once the
+# layer cache is warm every build claims the same instant. Sorting by it gives
+# an arbitrary order that *looks* chronological.
+#
+# So build order is recorded explicitly, as a label this script sets at build
+# time. A label lives in the image config, which means it survives
+# `docker save` / `docker load` and describes the artefact rather than the host
+# it happens to be sitting on -- unlike a deploy log on the target, which would
+# be one more piece of state that has to stay correct for a rollback to work.
+#
+# Two round trips rather than one: `docker image inspect` accepts several
+# images and emits one line each *in argument order*, which is what makes the
+# labels pairable with the tags without parsing RepoTags (an image with two tags
+# would otherwise be ambiguous). Images with no label sort last, which is right:
+# they predate this and are therefore older than anything that has one.
+#
+# `latest` is filtered out because it is an alias for one of these, not a
+# further image.
 list_remote_tags() {
   if [ "$DRY_RUN" = "1" ]; then
     REMOTE_TAGS=""
-    printf 'plan: list darts:* image tags on the target, newest first\n'
+    printf 'plan: list darts:* image tags on the target, most recently built first\n'
     return 0
   fi
-  REMOTE_TAGS="$(
+
+  local tags="" labels="" refs=""
+  tags="$(
     query_target "docker image ls 'darts' --format '{{.Tag}}'" |
       grep -v -e '^latest$' -e '^<none>$' || true
   )"
+
+  if [ -z "$tags" ]; then
+    REMOTE_TAGS=""
+    return 0
+  fi
+
+  local tag
+  while IFS= read -r tag; do
+    [ -n "$tag" ] || continue
+    refs="${refs} darts:${tag}"
+  done <<<"$tags"
+
+  labels="$(
+    query_target "docker image inspect --format '{{index .Config.Labels \"${BUILT_AT_LABEL}\"}}'${refs}"
+  )" || labels=""
+
+  # Pair by position, sort numerically descending, keep the tag. An absent or
+  # non-numeric label -- `<no value>` on an image built before this existed --
+  # becomes 0 and sorts to the bottom rather than aborting the sort.
+  local -a stamps=()
+  local line
+  while IFS= read -r line; do stamps+=("$line"); done <<<"$labels"
+
+  local combined="" stamp="" index=0
+  while IFS= read -r tag; do
+    [ -n "$tag" ] || continue
+    stamp="${stamps[$index]:-}"
+    case "$stamp" in
+      '' | *[!0-9]*) stamp=0 ;;
+    esac
+    combined="${combined}${stamp} ${tag}"$'\n'
+    index=$((index + 1))
+  done <<<"$tags"
+
+  REMOTE_TAGS="$(printf '%s' "$combined" | sort -k1,1rn | awk '{ print $2 }')"
 }
 
 transfer_image() {
