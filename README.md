@@ -118,6 +118,7 @@ backend/darts/     Python package (engine, database, API)
 frontend/          Vite + React + TypeScript app
 tests/             pytest suite
 scripts/           dev and ops shell scripts
+deploy/            Dockerfile, Compose file, env template
 docs/              architecture and data-model notes
 ```
 
@@ -129,3 +130,5 @@ docs/              architecture and data-model notes
 - [docs/data-model.md](docs/data-model.md)
 - [docs/durability.md](docs/durability.md) — shutdown checkpoint, boot integrity
   check, backup and restore.
+- [docs/deploy.md](docs/deploy.md) — packaging, host layout, and the manual Pi
+  verification checklist.

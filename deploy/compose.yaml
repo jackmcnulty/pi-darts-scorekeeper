@@ -1,0 +1,58 @@
+# How the Pi runs the scorekeeper.
+#
+# There is deliberately no systemd unit anywhere in this repository.
+# `restart: unless-stopped` provides both halves of what a unit would:
+# Docker's own service is enabled at boot (bootstrap-pi.sh does that), and it
+# restarts this container on boot and after a crash. "unless-stopped" rather
+# than "always" so that an operator who deliberately stops the container over
+# SSH still has it stopped after the next power cut.
+
+services:
+  darts:
+    image: darts:latest
+
+    # Present so `docker compose up --build` works on a development machine.
+    # Delivering the image to the Pi is #29's job, not this file's.
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+
+    container_name: darts
+    restart: unless-stopped
+
+    # Absolute, because this file is run from wherever it was copied to and
+    # the env file's location is a property of the host, not of the checkout.
+    # bootstrap-pi.sh creates it from deploy/darts.env.example.
+    env_file: /etc/darts/darts.env
+
+    ports:
+      # Published on 0.0.0.0 so the phone can reach it over the LAN; this box
+      # is on a home network behind a router and serves no authentication.
+      #
+      # The container side is fixed at 8000 while DARTS_PORT is configurable,
+      # so changing DARTS_PORT in the env file means changing this line too.
+      # Compose cannot interpolate from env_file -- those variables are handed
+      # to the container, not to the parser -- so this cannot be automatic.
+      - "8000:8000"
+
+    volumes:
+      # Bind mounts rather than named volumes, because these files have to be
+      # reachable by things that are not Docker: the sqlite3 CLI over SSH when
+      # something needs inspecting, and Samba in #30. A named volume would bury
+      # them under /var/lib/docker/volumes with root-owned permissions.
+      #
+      # The container runs as 1000:1000 and cannot fix ownership itself, so
+      # bootstrap-pi.sh chowns both of these to match.
+      - /var/lib/darts:/var/lib/darts # database + backups
+      - /srv/darts-share:/srv/darts-share # snapshots, shared read-only by #30
+
+    # The WAL checkpoint needs to finish before the process is killed.
+    #
+    # On SIGTERM uvicorn drains in-flight requests, then the FastAPI lifespan
+    # hook opens a connection and runs PRAGMA wal_checkpoint(TRUNCATE). The
+    # checkpoint itself is milliseconds on a database this size, but a busy
+    # checkpoint is *reported rather than raised* (docs/durability.md), so a
+    # grace period that is too short does not fail loudly -- it silently leaves
+    # a populated WAL behind. 30s rather than the 10s default buys room for a
+    # slow SD card without ever being reached in practice.
+    stop_grace_period: 30s
