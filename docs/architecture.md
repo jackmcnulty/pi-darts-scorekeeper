@@ -431,6 +431,125 @@ directories are still absent afterwards, which is not ceremony: CI runs as a
 user who could create them for real, so an escaped mutation would pass on the
 runner and only surface on the Pi.
 
+### Deploying and rolling back (#29)
+
+`scripts/deploy.sh` runs from a development machine and is the only thing that
+should touch the Pi. CI cannot: GitHub's runners have no route to a box on a
+home LAN. The operational half — every flag, and the recorded rollback drill —
+is in `docs/deploy.md`; what follows is why it is shaped this way.
+
+**Rollback is the same two operations as the happy path.** `docker tag` moves
+`darts:latest` to a sha, `docker compose up -d` makes the container match. A
+deploy points them at the new sha; a rollback points them at the old one.
+Nothing about recovery is a separate mechanism, which matters because recovery
+is the path that only ever runs when something is already wrong and is
+therefore the path least likely to have been exercised. Compose recreates on a
+retag because it compares the running container's image id against what the
+service resolves to now — measured, not assumed.
+
+`deploy/compose.yaml` keeps its hardcoded `image: darts:latest` and is shipped
+to the target unmodified. The alternative, `image: darts:${DARTS_IMAGE_TAG}`
+plus a `.env` file beside it, would have meant a second piece of host state that
+has to be correct for a rollback to work — and `env_file:` cannot supply it,
+because Compose interpolates from the shell environment or an adjacent `.env`
+and hands `env_file:` entries to the container instead (#28 established that the
+hard way).
+
+**The rollback target comes from the application, not from Docker.**
+`/api/healthz` reports the git sha it is serving, and that is read before the
+deploy changes anything. It is a stronger claim than "the most recently created
+image": after a failed deploy the newest image on the box is the broken one. The
+image list is only the fallback, for when nothing was answering at all.
+
+**Polling is on the HTTP endpoint, never on container state.** A broken image
+under `restart: unless-stopped` flaps between restarting and running, so
+`docker ps` answers the wrong question; and Docker's own HEALTHCHECK has
+`--start-period=20s`, which would consume half of the 40-second budget before
+reporting anything. The sha is what distinguishes "the new build is serving"
+from "the old build still is" — a healthy 200 carrying the previous sha is
+exactly what a completed rollback looks like.
+
+**The container is stopped before the backup**, which is not the order the
+ticket lists. `stop` sends SIGTERM, which is what runs the lifespan's
+`PRAGMA wal_checkpoint(TRUNCATE)`, so the backup is taken against a database
+with no writer attached and no outstanding WAL frames. The alternative is a few
+seconds quicker and does DDL on a database another process has open.
+
+**Rollback restores the image, not the schema.** By the time health is checked
+the migration has already run. Migrations here are additive, so an older image
+generally still serves a newer schema, but a genuinely bad migration is not
+something an image rollback can repair — that is what the backup from step 4
+and `darts-restore` are for. Worth knowing before trusting the automation
+further than it goes.
+
+**Every database command runs inside the new image as uid 1000**, with
+`--entrypoint` overriding the uvicorn launcher. Two requirements point the same
+way: the Pi is to have no system Python dependency on the app, and opening a
+WAL-mode database creates `-wal`/`-shm` files owned by the opener even
+read-only, so anything run under `sudo` would leave sidecars the container
+cannot write. Migrations come from the new image rather than
+`docker compose exec`, which would run the old container's migration set.
+
+`bootstrap-pi.sh` does not install the compose file, and #28's checklist assumed
+a checkout on the Pi that #29 explicitly does not want. `deploy.sh` ships it to
+`~/darts/compose.yaml` on every deploy, under the deploy user's home rather than
+root-owned `/etc/darts`, so that no step of a deploy needs `sudo`.
+
+#### Three things measured that contradicted the obvious implementation
+
+Recorded because each one failed silently, and in each case the code that got
+it wrong looked right.
+
+**`docker save` is 57.7 MB, not 267 MB, and gzip buys 0.93%.** 267 MB is the
+unpacked on-disk size; what crosses the network is the layer blobs, already
+compressed. Piping through `gzip -1` took 57,727,488 bytes to 57,188,654 — in
+exchange for compressing 57 MB on the Mac and decompressing it on a Pi. The
+pipe is now plain.
+
+**`docker image ls` cannot order these images.** It sorts by the image's
+`Created` timestamp, and BuildKit copies that from the cached parent instead of
+setting it when the image is assembled. Seven distinct images built from four
+commits over twenty minutes all reported
+`2026-09-25T12:34:10.61878831-04:00`. Sorting by it is arbitrary while looking
+chronological. Build order is now an explicit `org.darts.built-at` label, which
+lives in the image config and so survives `save`/`load` and describes the
+artefact rather than the host — unlike a deploy log on the Pi, which would be
+more state that has to be right for a rollback to work.
+
+**`docker image inspect` does not emit one line per argument in argument
+order.** Given an image whose config has no `Labels` key, `{{index
+.Config.Labels "x"}}` raises a template error, writes it to stderr and emits
+nothing for that image; the surviving lines come back in an order of their own.
+Seven images in, three lines out, the third belonging to the fourth argument. So
+the label is read with `{{with index .Config "Labels"}}` and joined on
+`{{.Id}}`.
+
+A fourth, which is a shell hazard rather than a Docker one: **`ssh` reads its
+own stdin**, so calling it from inside `while read tag <<<"$list"` consumes the
+rest of the list. Pruning deleted one image instead of three, exited 0, and left
+six tags on a box whose budget is five. The list is collected into an array
+before anything talks to the target.
+
+#### What is decided in a pure function, and why
+
+`scripts/deploy-lib.sh` holds rollback selection, tag pruning and build
+ordering as pure functions over tag lists — no ssh, no docker, no filesystem —
+and `scripts/deploy-remote.sh` holds everything that reaches the network and
+decides nothing. The split exists because those three decisions are the parts
+that can be wrong in a way no successful deploy would reveal: pruning is wrong
+when it deletes the image rollback is about to need, rollback selection has no
+happy path through it at all, and ordering was wrong twice.
+`tests/deploy/test_deploy_selection.py` drives them with synthetic tag lists,
+including the two shapes of real Docker output that broke the obvious
+implementations, under the `set -Eeuo pipefail` the entry-point scripts use.
+
+`tests/deploy/test_deploy_dry_run.py` asserts over the plan `--dry-run` writes
+to stdout: that `stop` precedes the backup, the backup precedes the migration,
+the migration precedes `up -d`; that every `darts-*` invocation is a container
+entrypoint; that no step runs an interpreter on the target; and that `--help`
+documents every flag the argument parser accepts, extracted from the parser
+rather than listed in the test.
+
 ## Durability and disaster recovery
 
 ### Setup API (#17)
