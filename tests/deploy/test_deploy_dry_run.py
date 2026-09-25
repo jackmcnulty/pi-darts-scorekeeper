@@ -47,6 +47,20 @@ HEALTHCHECK = SCRIPTS / "healthcheck.sh"
 UNREACHABLE = "nobody@deploy-target.invalid"
 
 
+def clean_env() -> dict[str, str]:
+    """The ambient environment with every DARTS_* variable removed.
+
+    Necessary rather than tidy, and found the hard way. `deploy.sh` runs this
+    suite during preflight, and it is itself normally invoked with
+    `DARTS_DEPLOY_HOST` exported -- so a test asserting that `--host` is
+    required inherited a perfectly good host from the deploy it was running
+    inside and failed. Every one of these scripts takes defaults from `DARTS_*`,
+    which is exactly the surface that makes a subprocess test depend on who ran
+    it, so the whole prefix goes.
+    """
+    return {key: value for key, value in os.environ.items() if not key.startswith("DARTS_")}
+
+
 class Plan:
     """One invocation: the plan on stdout, the commentary on stderr."""
 
@@ -112,7 +126,7 @@ def deploy(fake_repo: Path):
             [str(DEPLOY), "--host", UNREACHABLE, *args],
             capture_output=True,
             text=True,
-            env={**os.environ, "DEPLOY_REPO_ROOT": str(fake_repo)},
+            env={**clean_env(), "DEPLOY_REPO_ROOT": str(fake_repo)},
             timeout=120,
         )
         return Plan(result)
@@ -288,7 +302,13 @@ def flags_of(script: Path) -> set[str]:
 @pytest.mark.parametrize("script", [DEPLOY, ROLLBACK, HEALTHCHECK], ids=lambda p: p.name)
 def test_help_documents_every_flag(script: Path) -> None:
     """#29: `deploy.sh --help` documents every flag."""
-    result = subprocess.run([str(script), "--help"], capture_output=True, text=True, timeout=60)
+    result = subprocess.run(
+        [str(script), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=clean_env(),
+    )
     assert result.returncode == 0, result.stderr
 
     flags = flags_of(script)
@@ -306,6 +326,7 @@ def test_unknown_argument_is_rejected(script: Path) -> None:
         capture_output=True,
         text=True,
         timeout=60,
+        env=clean_env(),
     )
     assert result.returncode != 0
     assert "unknown argument" in result.stderr
@@ -314,9 +335,34 @@ def test_unknown_argument_is_rejected(script: Path) -> None:
 @pytest.mark.parametrize("script", [DEPLOY, ROLLBACK, HEALTHCHECK], ids=lambda p: p.name)
 def test_host_is_required(script: Path) -> None:
     """Every one of these acts on a remote machine. None of them may guess."""
-    result = subprocess.run([str(script)], capture_output=True, text=True, timeout=60)
+    result = subprocess.run(
+        [str(script)],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env=clean_env(),
+    )
     assert result.returncode != 0
     assert "--host is required" in result.stderr
+
+
+@pytest.mark.parametrize("script", [DEPLOY, ROLLBACK, HEALTHCHECK], ids=lambda p: p.name)
+def test_the_host_can_come_from_the_environment(script: Path) -> None:
+    """`--host` is required, but $DARTS_DEPLOY_HOST satisfies the requirement.
+
+    Which is how these are usually run -- exporting the host once beats
+    repeating it on three commands -- so it is worth pinning that the default
+    is consulted rather than merely documented.
+    """
+    result = subprocess.run(
+        [str(script), "--help"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+        env={**clean_env(), "DARTS_DEPLOY_HOST": UNREACHABLE},
+    )
+    assert result.returncode == 0
+    assert "DARTS_DEPLOY_HOST" in result.stdout
 
 
 # --- rollback.sh -----------------------------------------------------------
@@ -328,6 +374,7 @@ def rollback_plan(*args: str) -> Plan:
         capture_output=True,
         text=True,
         timeout=120,
+        env=clean_env(),
     )
     return Plan(result)
 
