@@ -527,6 +527,31 @@ prune_images() {
   done
 }
 
+# Delete the image that just failed, once the rollback is confirmed healthy.
+#
+# Without this, a failed deploy leaves the box over the "never more than 5 tags"
+# budget: the ordinary prune never runs, because the rollback path exits
+# non-zero, and the next successful deploy is the first thing to tidy up. That
+# was measured -- six tags after one failed drill.
+#
+# Pruning instead of deleting would be worse than doing nothing. `prune_images`
+# protects the sha being deployed, and on this path that sha *is* the broken
+# build. It is also the newest image, so a newest-first prune would keep the one
+# artefact known to be bad and cull a working older one to make room.
+#
+# Deleting it loses nothing: the image is reproducible from the sha, which the
+# error message names, and the container is already running something else so
+# the tag cannot be in use. Failure here is reported and not fatal -- the
+# rollback has already succeeded and that is the outcome that matters.
+discard_failed_image() {
+  if [ "$DRY_RUN" = "1" ]; then
+    printf 'plan: on a failed poll, delete the broken image after the rollback is healthy\n'
+    return 0
+  fi
+  on_target "docker image rm darts:${SHA}" >/dev/null 2>&1 ||
+    warn "could not delete the failed image darts:${SHA}; remove it by hand"
+}
+
 rollback() {
   local started="$1"
 
@@ -541,6 +566,7 @@ rollback() {
   if await_sha "$ROLLBACK_TAG" "$HEALTH_RETRIES"; then
     local elapsed=$(($(date +%s) - started))
     warn "rolled back to ${ROLLBACK_TAG}; /api/healthz reports it after ${elapsed}s"
+    discard_failed_image
     die "deploy of ${SHA} failed and was rolled back to ${ROLLBACK_TAG}"
   fi
 
@@ -587,6 +613,7 @@ main() {
   # this against a Pi is the one that only executes when the deploy has failed.
   if [ "$DRY_RUN" = "1" ]; then
     printf 'plan: on a failed poll, retag latest to the rollback target, up -d, and re-poll\n'
+    discard_failed_image
     printf 'plan: on a failed poll, exit non-zero even though the rollback succeeded\n'
   fi
 

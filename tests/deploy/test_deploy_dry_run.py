@@ -223,6 +223,18 @@ def test_the_health_poll_follows_the_restart(plan: Plan) -> None:
     assert plan.index("compose", "up") < plan.index("poll /api/healthz")
 
 
+def test_the_broken_image_is_deleted_after_a_rollback(plan: Plan) -> None:
+    """Otherwise a failed deploy leaves the target over the tag budget.
+
+    The ordinary prune never runs on that path, because the rollback exits
+    non-zero -- measured as six tags after one failed drill. Pruning instead of
+    deleting would be worse: `prune_images` protects the sha being deployed,
+    which on this path is the broken build, and it is the newest image, so a
+    newest-first prune would keep the known-bad artefact and cull a working one.
+    """
+    assert plan.planned("delete the broken image")
+
+
 def test_pruning_happens_last(plan: Plan) -> None:
     """Deleting images before the new build is known good would remove the
     rollback target while it is still needed."""
