@@ -208,13 +208,21 @@ query_target() {
   on_target "$@" 2>/dev/null
 }
 
-# 267 MB of image over a LAN to an SD card is the slowest step of a deploy by a
-# wide margin, so it goes through gzip: CPU on both ends is cheaper than bytes
-# on the wire, and `docker save` emits uncompressed layer tar, which compresses
-# well. Written as a function because `run` takes a command, not a pipeline.
+# The slowest step of a deploy by a wide margin, and deliberately *not* piped
+# through gzip.
+#
+# The intuition says compress it: the image is 267 MB and the wire is a home LAN
+# feeding an SD card. The measurement says otherwise. `docker save` does not emit
+# an uncompressed tar of the filesystem -- it emits the layer blobs, which are
+# already compressed -- so the stream is 57.7 MB before gzip and 57.2 MB after
+# it: 0.93%, in exchange for compressing 57 MB on this Mac and decompressing it
+# on a Pi. The 267 MB figure is the unpacked on-disk size and never crosses the
+# network at all.
+#
+# Written as a function because `run` takes a command, not a pipeline.
 push_image() {
   local tag="$1"
-  docker save "$tag" | gzip -1 | on_target "gunzip | docker load"
+  docker save "$tag" | on_target "docker load"
 }
 
 # --- Preflight --------------------------------------------------------------
@@ -367,9 +375,9 @@ list_remote_tags() {
 transfer_image() {
   if [ "$DRY_RUN" = "1" ]; then
     # Spelled out rather than left as `plan: push_image ...`, because this is the
-    # step that moves 267 MB and the one an operator most wants to see before
+    # step that moves ~58 MB and the one an operator most wants to see before
     # letting the script near a Pi.
-    printf 'plan: docker save darts:%s | gzip -1 | ssh %s "gunzip | docker load"\n' "$SHA" "$HOST"
+    printf 'plan: docker save darts:%s | ssh %s "docker load"\n' "$SHA" "$HOST"
     printf 'plan: skip that transfer entirely if darts:%s is already on the target\n' "$SHA"
     return 0
   fi
