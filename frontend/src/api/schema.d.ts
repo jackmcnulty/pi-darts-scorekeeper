@@ -1000,10 +1000,21 @@ export interface components {
      * @enum {string}
      */
     Rule: 'straight' | 'double' | 'master'
-    /** SegmentResponse */
+    /**
+     * SegmentResponse
+     * @description One board segment, and how many darts landed on it.
+     *
+     *     `label` is the server's own name for the segment -- "T20", "BULL", "MISS" --
+     *     the same string `DartResponse` carries, so a client drawing #27's
+     *     segment-frequency visual reads a name rather than deriving one from `segment`
+     *     and `multiplier`. There is exactly one place that knows the inner bull is 25
+     *     doubled, and it is not the frontend.
+     */
     SegmentResponse: {
       /** Darts */
       darts: number
+      /** Label */
+      label: string
       /** Multiplier */
       multiplier: number
       /** Segment */

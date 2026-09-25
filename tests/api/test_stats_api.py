@@ -18,6 +18,7 @@ from seed import build
 
 from darts.api.main import create_app
 from darts.api.stats import DEFAULT_MIN_DARTS
+from darts.engine.throws import Throw
 
 
 @pytest.fixture
@@ -164,6 +165,31 @@ def test_an_archived_player_is_off_the_leaderboard_but_keeps_their_stats(
     body = player(seeded_client, 1)["player"]
     assert body["is_archived"] is True
     assert body["x01"]["best_checkout"] == 121
+
+
+def test_every_segment_carries_the_servers_own_name_for_it(seeded_client: TestClient) -> None:
+    """#27's visual reads a label rather than deriving one from segment x multiplier.
+
+    `Throw.label` is the one place that knows the inner bull is 25 doubled and
+    that a miss is not on the board at all, and `DartResponse` already carries its
+    output. A client naming these itself would be a second implementation of the
+    board in a second language, which is exactly the duplication the label exists
+    to prevent.
+    """
+    seen: set[str] = set()
+    for player_id in range(1, 7):
+        segments = player(seeded_client, player_id)["player"]["segments"]
+        assert segments, f"player {player_id} has thrown darts, so has segments"
+        for entry in segments:
+            assert entry["label"] == Throw(entry["segment"], entry["multiplier"]).label, entry
+            seen.add(entry["label"])
+
+    # The three the derivation could plausibly get wrong are really in the
+    # fixture rather than assumed: a miss, which is not on the board at all, and
+    # the two rings that share segment 25 and are told apart only by multiplier.
+    assert {"MISS", "25", "BULL"} <= seen
+    assert any(label.startswith("D") for label in seen)
+    assert any(label.startswith("T") for label in seen)
 
 
 def test_a_windowed_player_report_covers_that_players_last_matches(

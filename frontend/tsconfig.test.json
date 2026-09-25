@@ -12,7 +12,8 @@
     "src/test-setup.ts",
     "src/test-harness.tsx",
     "src/play/statefixture.ts",
-    "src/matches/historyfixture.ts"
+    "src/matches/historyfixture.ts",
+    "src/stats/statsfixture.ts"
   ],
   "exclude": []
 }
