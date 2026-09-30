@@ -25,14 +25,17 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEPLOY = REPO_ROOT / "deploy"
 
 
-def _ini(path: Path) -> configparser.ConfigParser:
+def _ini(path: Path, *, strict: bool = True) -> configparser.ConfigParser:
     """smb.conf and systemd units are both ini-shaped, with two quirks.
 
     `=` is the only delimiter, because Samba keys contain colons
     (`fruit:metadata`). And option names keep their case, because systemd's are
-    case-sensitive.
+    case-sensitive. `strict` is off for systemd units, which may repeat a key
+    (`SystemCallFilter` does) and read each repetition as an addition; nothing
+    asserted here is a repeated key. It stays on for smb.conf, where a repeated
+    key means the second silently wins and is worth failing on.
     """
-    parser = configparser.ConfigParser(delimiters=("=",), interpolation=None, strict=True)
+    parser = configparser.ConfigParser(delimiters=("=",), interpolation=None, strict=strict)
     parser.optionxform = str  # type: ignore[assignment,method-assign]
     parser.read_string(path.read_text(encoding="utf-8"))
     return parser
@@ -126,7 +129,7 @@ def test_guests_are_mapped_and_netbios_is_off(smb: configparser.ConfigParser) ->
 
 def test_the_unit_posts_to_the_route_the_app_serves() -> None:
     """The URL in the unit is checked against the app's own routes, not a string."""
-    unit = _ini(DEPLOY / "darts-snapshot.service")
+    unit = _ini(DEPLOY / "darts-snapshot.service", strict=False)
     exec_start = unit["Service"]["ExecStart"].replace("\\\n", " ")
     [url] = re.findall(r"http://\S+", exec_start)
     assert "--request POST" in exec_start
@@ -148,7 +151,7 @@ def test_the_unit_posts_to_the_route_the_app_serves() -> None:
 def test_the_unit_never_touches_the_database_itself() -> None:
     """The WAL-sidecar trap: nothing outside the container may open darts.db."""
     text = (DEPLOY / "darts-snapshot.service").read_text(encoding="utf-8")
-    service = _ini(DEPLOY / "darts-snapshot.service")["Service"]
+    service = _ini(DEPLOY / "darts-snapshot.service", strict=False)["Service"]
     assert "ExecStart" in service
     assert "/var/lib/darts" not in service["ExecStart"]
     assert "darts.db" not in service["ExecStart"]

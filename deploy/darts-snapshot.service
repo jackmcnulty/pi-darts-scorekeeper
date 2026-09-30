@@ -29,10 +29,32 @@ Type=oneshot
 ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 60 \
     --request POST http://127.0.0.1:8000/api/admin/snapshot
 
-# It needs the loopback network and nothing else.
+# It needs the loopback network and nothing else, so it gets nothing else.
+# `systemd-analyze security darts-snapshot.service` scores what is left; without
+# this block it reported 8.0 EXPOSED for a unit whose whole job is one curl.
 DynamicUser=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectHostname=yes
+ProtectClock=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+UMask=0077
 IPAddressDeny=any
 IPAddressAllow=localhost
