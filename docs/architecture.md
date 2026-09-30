@@ -655,6 +655,73 @@ stand-in: it fired one second after `systemctl restart`.
 
 ## Durability and disaster recovery
 
+### Off-Pi backup pull (#31)
+
+`scripts/backup-pull.sh` copies the database from the Pi to the Mac. It is the
+only copy that survives the SD card dying. The runbook that uses it, with the
+recorded drill, is `docs/dr.md`; this is why it is shaped this way.
+
+**It pulls `GET /api/export/db`, not the share or the backup archive.** The
+endpoint takes a copy the moment it is asked, WAL collapsed, so the pull is
+never up to five minutes stale. It needs no credentials, no mount and no SSH key.
+The price is that a Pi with the app down yields nothing, which is also the one
+state in which nothing new is being written. The ticket says "the newest
+snapshot"; this is a fresh one rather than the share's `darts-latest.db`, on
+purpose.
+
+**It runs when asked, not on a schedule.** The ticket asked for a launchd job.
+Jack chose manual pulls instead, so there is no plist and nothing unattended on
+the Mac. The recovery point is therefore the last pull, which `docs/dr.md` says
+in its first section. The script still behaves as a scheduled job would have to
+(a switched-off Pi is one `info:` line and exit 0), so scheduling it later
+needs no change to it.
+
+**Two checks, because `integrity_check` alone accepts an empty file.** A
+zero-byte file is a valid empty SQLite database, and `/usr/bin/sqlite3` 3.51
+returns `ok` for it. The endpoint streams with no `Content-Length`, so a Pi that
+loses power mid-download can end the body cleanly. So a copy is accepted only
+when `integrity_check` says exactly `ok` *and* `user_version` is above 0. The
+download goes to a hidden temporary in the destination directory and is renamed
+into place only after both checks, so a rejected download never replaces a good
+copy. Retention runs only after an accepted one.
+
+**"Switched off" is decided by whether a connection was made.** Measured on the
+Mac: an unanswered `darts.local` fails with curl exit 28 after 5 s ("Could not
+resolve host", inside `--connect-timeout`), not the exit 6 a unicast name gives;
+a closed port is exit 7. But a listener that accepts and then hangs is *also*
+exit 28 with 0 bytes, so the byte count cannot tell them apart. `%{time_connect}`
+can: it stays zero unless TCP connected. Exits 6 and 7, and 28 without a
+connection, are "unreachable" (exit 0). Everything else is a failure (exit 1).
+Exit 7 also covers a Pi that is up with its app down; they are reported alike,
+and the staleness warning covers a Pi that stays that way.
+
+**The decisions are pure functions, with no `date` in them.** Retention,
+"newest", staleness and curl classification are in
+`scripts/backup-pull-lib.sh`, called from `tests/deploy/test_backup_pull.py`
+exactly as `deploy-lib.sh` is. The script runs on the Mac under `/bin/bash` 3.2
+with BSD `date`; CI is Linux with GNU `date`; and BSD `date -j -f` reads a UTC
+stamp as local time unless `TZ=UTC` is set (four hours out on this Mac). So
+stamps stay `YYYYMMDDTHHMMSSZ` strings, which sort lexically, and become epoch
+seconds through days-from-civil arithmetic checked against Python's `calendar`,
+leap days included. "Now" is an argument. The lib uses no arrays, because an
+empty `"${arr[@]}"` under `set -u` is an error before bash 4.4 and an empty
+backup directory is exactly that case. The suite runs it under 3.2 on a Mac and
+5.x in CI.
+
+**The end-to-end tests need no server.** curl reads `file://` as it reads HTTP,
+so `BACKUP_PULL_URL` hands the real script a good database, one with a damaged
+page (it opens, sqlite3 exits 0, and only `integrity_check`'s output says
+otherwise), one with a damaged header ("file is not a database"), and an empty
+body. The known-good copy is asserted byte for byte after each rejection. A closed
+port and a `.invalid` name stand in for a switched-off Pi.
+
+**Restoring runs `darts-restore` in the image as uid 1000, from a staged copy.**
+That is #29's rule for anything that opens the database. The drill also
+reproduced why "healthy" is not the pass: on a wiped card the boot check creates
+an empty database and reports `healthy` with `"detail":"created a new
+database"`. The drill compares digests of `darts.csv`, `matches.csv` and
+`stats.json` instead.
+
 ### Setup API (#17)
 
 `services.setup` owns every player/setup write transaction, including duplicate-name

@@ -27,6 +27,8 @@ asks the container over HTTP to publish a snapshot.
 | `deploy/darts-snapshot.service` | `curl -X POST /api/admin/snapshot`, sandboxed. |
 | `deploy/darts-snapshot.timer` | Runs it every five minutes. |
 | `deploy/avahi-darts.service` | Advertises the share to Finder. An Avahi file, not a unit. |
+| `scripts/backup-pull.sh` | Run on the Mac: pull a verified copy off the Pi. See `docs/dr.md`. |
+| `scripts/backup-pull-lib.sh` | Its retention, staleness and curl decisions. Pure, unit-tested. |
 
 ## The layout on the host
 
