@@ -572,6 +572,87 @@ entrypoint; that no step runs an interpreter on the target; and that `--help`
 documents every flag the argument parser accepts, extracted from the parser
 rather than listed in the test.
 
+### Read-only snapshot share (#30)
+
+`smb://darts.local/darts` lets a Mac open the data in desktop tools. It serves
+`/srv/darts-share`, which holds the snapshot #20 already produced
+(`darts-latest.db` plus `snapshot.json`) and nothing else. The operational half,
+with the recorded stand-in run, is in `docs/deploy.md`; this is why it is shaped
+this way.
+
+**Nothing outside the container ever opens `darts.db`.** This is the first
+ticket where something other than the app reads the data, and #28 and #29 spent
+three tickets defending against exactly that: opening a WAL database, even
+read-only, creates `-wal`/`-shm` sidecars owned by whoever opened it, and a root
+process doing so leaves files the uid-1000 container cannot write. So the
+five-minute timer does not run `darts-snapshot`. That console script lives in
+the image's virtualenv, which the Pi has no Python to run, and #29 keeps it
+that way. Instead `darts-snapshot.service` is `curl -X POST
+http://127.0.0.1:8000/api/admin/snapshot`: the copy is made by the process that
+already owns the database, as the uid that already owns it. The unit needs no
+file access, so it gets none: `DynamicUser`, loopback only, and a sandbox that
+`systemd-analyze security` scores 0.9 (8.0 without it). This departs from the
+ticket's wording, "runs `darts-snapshot`", on purpose.
+
+**The dart that wins a match republishes the snapshot, from the route and after
+the response.** The win is decided in `services.play._advance`, inside the
+dart's transaction, where a snapshot would copy the database from *before* the
+win committed. `record_dart` is the first point where the win is both known and
+durable, so it queues a FastAPI background task when the returned state is
+`complete`. The winning dart does not wait on the copy, and a snapshot that
+fails is logged and swallowed, because the dart has already been committed and
+answered. Background tasks do not appear in OpenAPI, so the contract is
+unchanged; only the endpoint's description moved in `schema.d.ts`.
+
+**Two publishers in one process needed a lock.** With the timer's POST and the
+hook both inside the app, two `snapshot.create` calls can overlap. Each
+publishes its database and then its manifest, so an unlucky interleaving leaves
+a `snapshot.json` describing the other run's file. A module-level
+`threading.Lock` serialises them. A file lock would only be needed if a second
+*process* published, and on the Pi none does. Natural racing almost never hits
+the gap (0 failures in 20 runs with the lock removed), so the lock's test forces
+the interleaving instead, and fails without it.
+
+**Snapshots are published 0644; before #30 they were 0600.** `mkstemp` creates
+temporaries 0600 and a rename keeps the mode, so the share would have listed
+both files to its guest (`nobody`) and let it open neither. This was measured
+against a real smbd: `NT_STATUS_ACCESS_DENIED` on the pre-#30 files, from a
+container and again from the stand-in. The mode is set before the rename, for
+the database and the manifest alike (`write_json` gained a `mode`), so there is
+no instant where the published file exists and cannot be read. Backups keep
+0600: nothing but the app should read them. `force user` in Samba would have
+hidden the bug rather than fixing it.
+
+**`smb.conf` is replaced whole, not included.** Bookworm's Samba 4.17 has no
+`smb.conf.d`, and its stock file also exports `[homes]`, `[printers]` and
+`[print$]`. A share with no authentication should have its whole surface in one
+reviewed file, so `deploy/smb-darts.conf` *is* `/etc/samba/smb.conf`. Bootstrap
+keeps Debian's original once, as `smb.conf.debian-orig`, and replaces ours on
+every run, like `compose.yaml`. Writes fail three independent ways: `read only`,
+`guest only` (so no credentials can map to a user with more rights), and the
+filesystem (755, owned by 1000, served as `nobody`). A real smbd refused a write
+even with the directory at 777, so the first of those holds on its own.
+
+**Guest, deliberately.** The app has no authentication: anyone on the LAN can
+already score, abandon or export any match. A password on a read-only copy of
+the same data would add a secret to a box that has none and protect nothing the
+browser does not already expose. That rests on the same LAN-only assumption as
+everything else here.
+
+**Avahi is checked, not configured.** `darts.local` resolves because Avahi
+publishes the host's own name. So the requirement is really "the hostname is
+`darts`", which is chosen in Raspberry Pi Imager when the card is flashed.
+Bootstrap installs and enables Avahi, adds an `_smb._tcp` advertisement so the
+Pi appears in Finder's sidebar, and warns if the hostname is wrong. It does not
+rename a live box.
+
+**The timer is monotonic.** `OnUnitActiveSec=5min` rather than `OnCalendar`,
+because the Pi has no battery-backed clock and the wall clock can be wrong until
+NTP syncs after a power cut. `AccuracySec=1s`, because systemd's default of one
+minute would let each firing drift. Started long after boot, `OnBootSec` has
+already passed, so the first run is immediate. That was measured on the
+stand-in: it fired one second after `systemctl restart`.
+
 ## Durability and disaster recovery
 
 ### Setup API (#17)

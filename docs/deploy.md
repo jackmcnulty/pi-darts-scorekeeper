@@ -1,12 +1,14 @@
 # Deploying to the Pi
 
 How the scorekeeper is packaged and deployed, and what has to be checked on real
-hardware. Tickets #28 and #29.
+hardware. Tickets #28, #29 and #30.
 
-There is no systemd unit anywhere in this repository and there should not be
-one. `restart: unless-stopped` in `deploy/compose.yaml` provides both halves of
-what a unit would do -- start at boot and restart after a crash -- given that
-`docker.service` is itself enabled at boot, which `bootstrap-pi.sh` does.
+There is no systemd unit for the app and there should not be one.
+`restart: unless-stopped` in `deploy/compose.yaml` provides both halves of what a
+unit would do -- start at boot and restart after a crash -- given that
+`docker.service` is itself enabled at boot, which `bootstrap-pi.sh` does. The one
+unit in the repository, #30's `darts-snapshot`, runs nothing of the app's: it
+asks the container over HTTP to publish a snapshot.
 
 | File | Responsibility |
 | --- | --- |
@@ -21,6 +23,10 @@ what a unit would do -- start at boot and restart after a crash -- given that
 | `scripts/healthcheck.sh` | Ask the target which sha it is serving. |
 | `scripts/deploy-lib.sh` | Rollback selection, pruning, ordering. Pure, unit-tested. |
 | `scripts/deploy-remote.sh` | Everything that talks over ssh. Decides nothing. |
+| `deploy/smb-darts.conf` | The whole of `/etc/samba/smb.conf`: one read-only guest share. |
+| `deploy/darts-snapshot.service` | `curl -X POST /api/admin/snapshot`, sandboxed. |
+| `deploy/darts-snapshot.timer` | Runs it every five minutes. |
+| `deploy/avahi-darts.service` | Advertises the share to Finder. An Avahi file, not a unit. |
 
 ## The layout on the host
 
@@ -30,6 +36,10 @@ what a unit would do -- start at boot and restart after a crash -- given that
 /srv/darts-share/             snapshots, shared read-only by #30
 /etc/darts/darts.env          configuration, loaded by compose
 /etc/darts/compose.yaml       what deploy.sh drives the container with
+/etc/samba/smb.conf           the share, from deploy/smb-darts.conf (#30)
+/etc/samba/smb.conf.debian-orig   the stock file, kept once
+/etc/avahi/services/darts.service     the share's mDNS advertisement
+/etc/systemd/system/darts-snapshot.{service,timer}
 ```
 
 The two files in `/etc/darts` are installed by `bootstrap-pi.sh` and stay
@@ -506,3 +516,184 @@ kept the one artefact known to be bad and culled a working one to fit it.
   was shown is that the app is not installed on the host — no `darts-backup`, no
   `darts-migrate`, no `node`, no `npm` — and that no deploy step invokes an
   interpreter on the target.
+
+## The snapshot share (#30)
+
+A read-only, passwordless SMB share of `/srv/darts-share`, so a Mac can open the
+data in DB Browser, DBeaver, TablePlus, DuckDB or pandas. In Finder:
+**Go > Connect to Server**, `smb://darts.local/darts`, **Connect As: Guest**.
+What the files are and how to query them is at the top of `docs/data-model.md`.
+
+Everything is installed by `sudo scripts/bootstrap-pi.sh`: the `samba` and
+`avahi-daemon` packages, `deploy/smb-darts.conf` as the whole of
+`/etc/samba/smb.conf`, the Avahi advertisement, and the timer. **An
+already-bootstrapped Pi needs one re-run** to pick all of that up, and #30 also
+edited a comment in `compose.yaml`, so `deploy.sh` refuses to deploy until that
+re-run has happened (the error names the fix).
+
+Like `compose.yaml`, every file here is a repository artefact: replaced on every
+run, with the service that reads it restarted on every run. Debian's own
+`smb.conf` is kept once, as `smb.conf.debian-orig`, and never overwritten.
+
+**Only the snapshot is shared, never `/var/lib/darts`.** Nothing on the host
+opens the live database either: the timer asks the app to take the snapshot.
+
+```
+systemctl list-timers darts-snapshot.timer   # when it last ran and runs next
+journalctl -u darts-snapshot.service         # each run logs the manifest it got
+cat /srv/darts-share/snapshot.json           # created_at is the age of the copy
+testparm -s /etc/samba/smb.conf              # what smbd will actually use
+```
+
+If the app is down, the timer's POST fails into the journal and the share keeps
+serving the last good snapshot; `created_at` says how old it is. The dart that
+wins a match also republishes it, so a finished match is on the share within
+seconds rather than at the next tick.
+
+**`samba-ad-dc.service` shows as enabled and is not running.** The package enables
+it, and it refuses to start on anything that is not an Active Directory domain
+controller (`start condition unmet`). Harmless; bootstrap leaves it alone.
+
+**The hostname has to be `darts`.** Avahi publishes the machine's own name, so
+`darts.local` resolves only if that is what the Pi is called. Choose it in
+Raspberry Pi Imager when flashing. Bootstrap warns, and does not rename, if it
+is something else; the share then works at `smb://<that name>.local/darts`.
+
+### Checklist on the Pi
+
+Continues the numbering above. Needs the Pi and a Mac on the same LAN.
+
+#### 10. The share mounts read-only from Finder
+
+Finder: **Go > Connect to Server**, `smb://darts.local/darts`, **Guest**.
+
+**Expect:** it mounts, showing exactly `darts-latest.db` and `snapshot.json`.
+The Pi also appears under **Locations** in the sidebar without typing anything
+(that is the Avahi advertisement). No `.darts-*` temporaries are ever visible.
+
+#### 11. Writes fail
+
+Drag any file onto the mounted share, and from Terminal:
+
+```
+touch /Volumes/darts/x
+rm /Volumes/darts/snapshot.json
+```
+
+**Expect:** Finder refuses the copy, and both commands fail with a permission or
+read-only error. Nothing on the Pi changes: `ls -la /srv/darts-share`.
+
+#### 12. DB Browser opens it without a lock error
+
+Open `/Volumes/darts/darts-latest.db` in DB Browser for SQLite, browse `darts`,
+and leave it open while the next timer run happens (step 14).
+
+**Expect:** no lock error, no `darts-latest.db-wal` appearing in the share, and
+nothing new on the Pi: `ls -la /var/lib/darts` still shows only `darts.db` and
+`backups/` (plus `darts.db-wal`/`-shm` owned by 1000 while the app has a
+connection open). If DB Browser offers to open read-write, the share will refuse
+it anyway.
+
+#### 13. DuckDB reads it
+
+```
+duckdb -c "ATTACH '/Volumes/darts/darts-latest.db' AS darts (TYPE sqlite, READ_ONLY); SELECT count(*) FROM darts.darts;"
+```
+
+**Expect:** the same count as `snapshot.json`'s `row_counts.darts`. The ticket
+writes this as `ATTACH 'darts-latest.db' (READ_ONLY); SELECT count(*) FROM
+darts;`. Without `AS`, DuckDB names the attached catalog after the file,
+`darts-latest`, and does not switch to it, so a bare `FROM darts` looks in the
+in-memory database instead. **Not verified**: DuckDB was not installed where #30
+was built. Reading a SQLite file also makes DuckDB fetch its `sqlite` extension
+on first use, so do this once with internet access.
+
+#### 14. The manifest advances every five minutes
+
+```
+ssh pi@darts.local 'for i in 1 2 3; do grep created_at /srv/darts-share/snapshot.json; sleep 300; done'
+```
+
+**Expect:** three `created_at` values five minutes apart (to the second, give or
+take one).
+
+#### 15. A finished match is on the share within seconds
+
+Finish a match on the phone, then on the Mac within a few seconds:
+
+```
+cat /Volumes/darts/snapshot.json
+```
+
+**Expect:** `created_at` is the moment the match ended, not the last five-minute
+tick, and `docker logs darts | grep "snapshot after match"` names the match.
+
+### The rehearsal on the stand-in
+
+**Everything below was verified against a stand-in Linux host over SSH, not on
+the Pi**: the same aarch64 Ubuntu 24.04 VM as #29's drill, with systemd 255 and
+Samba 4.19 (Bookworm has 4.17). It proves the host half works on a systemd host.
+It does not prove anything about Finder, DB Browser or `darts.local`, because
+the VM is not routable from the Mac and its hostname is `colima`.
+
+Recorded 2026-09-29, with branch `30-samba-snapshot-share` deployed as `7d6f03b`.
+
+**The timer.** Four consecutive runs from the journal
+(`journalctl -u darts-snapshot.service -o short-precise`), with `snapshot.json`
+read back after each:
+
+| Started | Since previous | Run took | `created_at` | Mode |
+| --- | --- | --- | --- | --- |
+| 20:14:10.000 | -- | 24 ms | `20260930T001410Z` | 644 |
+| 20:19:10.800 | 300.80 s | 33 ms | `20260930T001910Z` | 644 |
+| 20:24:11.595 | 300.80 s | 34 ms | `20260930T002411Z` | 644 |
+| 20:29:12.491 | 300.90 s | 17 ms | `20260930T002912Z` | 644 |
+
+Each interval is about 0.8 s longer than five minutes, because
+`OnUnitActiveSec` counts from the previous activation and each activation lands
+a moment late. So the runs creep against the wall clock, by about four minutes a
+day, and never bunch up. That is the trade for a monotonic timer, and it is fine
+for a share nobody reads to the second. Started after boot, the timer ran
+immediately: `systemctl restart` at 20:09:08, first run at 20:09:09.
+
+**The pre-#30 file mode, reproduced.** Before the new image was deployed, the
+timer ran against the old one and published `-rw------- 1000 1000`. A guest
+`smbclient` against the stand-in's smbd then got
+`NT_STATUS_ACCESS_DENIED opening remote file \snapshot.json`. After the deploy,
+every published file was `-rw-r--r--`.
+
+**Reads and writes over SMB.** No Mac could reach the VM, so a guest `smbclient`
+ran in a container sharing the VM's network namespace, against the stand-in's
+systemd-managed smbd. Only `darts` and `IPC$` were advertised. The
+`darts-latest.db` it fetched passed `integrity_check`, was in journal mode
+`delete`, and contained the match finished below; opening it left no sidecar.
+`put`, `rm`, `mkdir` and `rename` were each refused with
+`NT_STATUS_ACCESS_DENIED`, and so was `put` as a named user. The same config
+under Bookworm's Samba 4.17.12, in a `debian:bookworm` container on the Mac,
+also refused a `put` with the share directory at mode 777, so `read only = yes`
+holds without the filesystem's help.
+
+**The match-completion hook.** A best-of-one cricket match played over HTTP on
+the host, 15 darts. The 14 darts before the winner did not touch `snapshot.json`.
+The winning dart's round trip was 2.5 ms, and `snapshot.json` was replaced
+**1.9 ms after its response arrived**. The container logged
+`msg="snapshot after match" match_id=1 created_at=20260930T001210Z bytes=196608`.
+
+**How long a snapshot takes.** On the stand-in's 196,608-byte database, five
+`POST /api/admin/snapshot` round trips took 14.0, 6.4, 5.7, 5.2 and 4.5 ms. On a
+50,008-dart database (3,572 cricket matches played through the API, 14,520,320
+bytes), `snapshot.create` took 108–111 ms inside the image on the stand-in and
+97–106 ms on an M-series Mac. `PRAGMA integrity_check` returned `ok` and the
+copy's `journal_mode` was `delete`, so it has no WAL sidecar. An SD card will be
+slower; run step 14 on the Pi for the real figure.
+
+**Nothing outside the container opened the database.** After the timer runs and
+the hook, `/var/lib/darts` held `darts.db` and `backups/`, both `1000 1000`, and
+no root-owned sidecar.
+
+**What the stand-in caught.** Bootstrap's first version *reloaded* smbd. The
+package had already started smbd with the stock config, and a reload does not
+rebind sockets, so `smb ports = 445` did not take effect and smbd was still
+listening on 139. It now restarts. **That fix has not yet been re-run on the
+stand-in**, so smbd there still listens on 139 until bootstrap runs again. The package also enabled `nmbd`, which
+bootstrap disables because NetBIOS is off.

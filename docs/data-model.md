@@ -1,5 +1,55 @@
 # Data model
 
+## If you opened this from the share
+
+`smb://darts.local/darts` (#30) holds two files, and this document describes the
+first of them.
+
+| File | What it is |
+| --- | --- |
+| `darts-latest.db` | A complete copy of the scorekeeper's SQLite database, republished every five minutes and within seconds of a match finishing. |
+| `snapshot.json` | Its manifest: `created_at` (UTC, `YYYYMMDDTHHMMSSZ`), `schema_version`, `size_bytes` and a row count per table, read out of that copy rather than the live database. |
+
+**It is a copy, and the share is read-only.** Nothing you do to it reaches the
+Pi, and there is no way to write through the share. The live database is never
+shared: it is in WAL mode and being written to during a game, and opening it
+from another machine would risk exactly the lock errors and sidecar files this
+copy exists to avoid. The copy is self-contained, with no `-wal` file, so DB
+Browser, DBeaver, TablePlus, DuckDB or pandas can open it directly.
+
+**Check how old it is** before trusting a number: `created_at` in
+`snapshot.json`. If the app was down, the file stops advancing rather than
+disappearing. And because each snapshot replaces the previous one by rename, a
+tool that already has the file open keeps reading the version it opened;
+reopen it to see newer play.
+
+**Start with the views** (see [Views](#views) below), which join the tables into
+one row per dart, visit, or player-in-a-leg/match, so most questions need no
+joins. Two that run as written:
+
+```sql
+-- Matches played and won, per player. Unfinished and abandoned matches excluded.
+SELECT player_name, count(*) AS matches, sum(won) AS won
+FROM v_match_players
+WHERE match_completed_at IS NOT NULL
+GROUP BY player_id
+ORDER BY won DESC;
+
+-- Triples thrown, per player, in every game type.
+SELECT player_name, count(*) AS triples
+FROM v_darts
+WHERE multiplier = 3
+GROUP BY player_id
+ORDER BY triples DESC;
+```
+
+For the figures the app itself shows -- averages, checkout rates, cricket marks
+per round -- ask the app: `GET /api/export/stats.json` returns them as the
+screens compute them, and `darts.csv`/`matches.csv` beside it are described
+under [The published CSV exports](#the-published-csv-exports). Each figure has a
+precise definition in `backend/darts/stats/`, and a hand-written query can
+quietly disagree with it.
+
 ## Principles
 
 Schema version 1 is defined by `backend/darts/db/migrations/0001_init.sql`.
@@ -24,7 +74,7 @@ the visit's score returns to its starting value.
 
 Cross-row game rules (solo team has exactly one member, all darts of a busted
 visit are uncounted, config JSON matches promoted fields, valid rotation and
-completion) are written atomically by the upcoming repositories/play service
+completion) are written atomically by the repositories and the play service
 (#14/#15). CHECKs enforce local legality and FKs enforce identity here; triggers
 do not duplicate the pure game engine.
 
