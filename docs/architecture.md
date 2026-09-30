@@ -655,10 +655,11 @@ stand-in: it fired one second after `systemctl restart`.
 
 ## Durability and disaster recovery
 
-### Off-Pi backup pull (#31)
+### Off-Pi backup pull and automatic on-Pi backups (#31)
 
 `scripts/backup-pull.sh` copies the database from the Pi to the Mac. It is the
-only copy that survives the SD card dying. The runbook that uses it, with the
+only copy that survives the SD card dying. The app also now backs itself up on
+the Pi, on every start and every 24 hours. The runbook that uses it, with the
 recorded drill, is `docs/dr.md`; this is why it is shaped this way.
 
 **It pulls `GET /api/export/db`, not the share or the backup archive.** The
@@ -714,6 +715,25 @@ page (it opens, sqlite3 exits 0, and only `integrity_check`'s output says
 otherwise), one with a damaged header ("file is not a database"), and an empty
 body. The known-good copy is asserted byte for byte after each rejection. A closed
 port and a `.invalid` name stand in for a switched-off Pi.
+
+**The Pi backs itself up, in the app, on every start and every 24 hours.**
+Before #31, `/var/lib/darts/backups/` was written only by `deploy.sh`, so the
+boot check's automatic repair rolled back to the last deploy. Jack asked for a
+backup on boot and every 24 hours (and for the Mac *not* to pull on its own).
+It lives in the app (`darts.services.auto_backup`, started from the lifespan)
+rather than in a host timer. So the copy is made by the process and uid that
+already own the database, there is nothing to install on the host and no
+bootstrap re-run, and no route is added. It runs on a daemon thread, not an
+asyncio task, because stopping must *wait* for a copy in progress: the shutdown
+checkpoint cannot truncate the WAL under an open read transaction. The interval
+is `Event.wait`, which is both the sleep and the stop signal and runs on a
+monotonic clock, since the Pi's wall clock is wrong until NTP syncs.
+`DARTS_BACKUP_INTERVAL_HOURS` sets it (default 24, 0 off). Hand-built `Settings`
+in the tests and the OpenAPI tool pass 0, so no unrelated test finds a backup
+it did not take. **A database with no matches is skipped**: the boot check turns
+a missing database into an empty, healthy one, and backing that up would make
+it the newest valid backup, which the next repair would then restore. The drill
+recorded the skip on a wiped card.
 
 **Restoring runs `darts-restore` in the image as uid 1000, from a staged copy.**
 That is #29's rule for anything that opens the database. The drill also

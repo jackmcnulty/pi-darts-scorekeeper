@@ -136,6 +136,24 @@ place *before* its manifest is written, so an interrupted run can leave a backup
 without a manifest (restorable, and reported as such) but never a manifest
 promising a backup that is absent.
 
+### Automatic backups
+
+The server backs itself up (#31): once on every start, on a background thread
+straight after the boot check, and then every `DARTS_BACKUP_INTERVAL_HOURS`
+(default 24; `0` turns both off). On the Pi, "every start" means every
+power-on, deploy and crash restart, so most backups come from starts, and the
+retention below collapses them. Shutdown waits up to 20 seconds for a backup in
+progress before the WAL checkpoint, which could not truncate under a copy's read
+transaction. A backup that fails is logged, never raised.
+
+**A database with no matches is never backed up.** The boot check turns a
+missing database into an empty, healthy one, and a degraded boot leaves an empty
+one too. Backing either up would make an empty file the newest valid backup,
+which is exactly what the next boot check would restore after real corruption.
+
+Before #31 the only thing that wrote this directory was `deploy.sh`, before a
+deploy, so the boot check's automatic repair rolled back to the last deploy.
+
 ### Retention
 
 Grandfather-father-son over UTC buckets, keeping the last **24 hourly** and

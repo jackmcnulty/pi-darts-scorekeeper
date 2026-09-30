@@ -34,7 +34,7 @@ asks the container over HTTP to publish a snapshot.
 
 ```
 /var/lib/darts/darts.db       the live database
-/var/lib/darts/backups/       darts-backup writes here
+/var/lib/darts/backups/       the app (every start, every 24 h) and deploy.sh write here
 /srv/darts-share/             snapshots, shared read-only by #30
 /etc/darts/darts.env          configuration, loaded by compose
 /etc/darts/compose.yaml       what deploy.sh drives the container with

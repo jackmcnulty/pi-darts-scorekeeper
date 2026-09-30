@@ -10,7 +10,7 @@ this is the runbook that uses them.
 | Copy | Where | Written | Survives the card dying |
 | --- | --- | --- | --- |
 | The database | `/var/lib/darts/darts.db` on the Pi | Every dart | No |
-| On-Pi backups | `/var/lib/darts/backups/darts-<ts>.db` | **Only by `deploy.sh`**, just before each deploy | No |
+| On-Pi backups | `/var/lib/darts/backups/darts-<ts>.db` | By the app on every start and every 24 hours, and by `deploy.sh` before a deploy | No |
 | The share snapshot | `/srv/darts-share/darts-latest.db` | Every 5 minutes, and when a match ends | No |
 | Mac copies | `~/Library/Application Support/darts-backups/darts-<ts>.db` | **When you run `scripts/backup-pull.sh`** | Yes |
 
@@ -133,7 +133,10 @@ is all there is.
 5. Check [what a pass looks like](#what-a-pass-looks-like).
 
 The share repopulates on its own within five minutes. The on-Pi backup archive
-stays empty until the next deploy.
+starts again at the next start of the app after the restore, or within 24
+hours. The empty start in step 3 is not backed up: the app never backs up a
+database with no matches, so an empty file can never become the backup a later
+repair restores.
 
 **Lost:** everything thrown after your last pull.
 
@@ -146,9 +149,12 @@ check is restored, and `/api/healthz` reports `"status":"restored"` and
 `"auto_restored":true`, with the failure in `detail`
 ([durability.md → Boot integrity check](durability.md#boot-integrity-check)).
 
-What it restores from is the on-Pi backup archive, and **that is only written by
-`deploy.sh`**. So the automatic repair takes you back to your last deploy, which
-may be weeks old. Before accepting it:
+What it restores from is the on-Pi backup archive, which the app writes every
+time it starts and every 24 hours after that
+([durability.md → Automatic backups](durability.md#automatic-backups)). So the
+automatic repair takes you back to the last start or the last 24-hour mark,
+whichever came later. Anything thrown after that is lost unless a newer copy
+exists somewhere. Before accepting it:
 
 1. Find which backup it used. Health does not say; the container log does:
 
@@ -189,12 +195,18 @@ A match abandoned by mistake, darts undone that should not have been, or
 anything else the app did exactly as asked. The database is healthy, so nothing
 repairs itself. You are choosing a moment to go back to.
 
-1. **Do not pull again until you have decided.** A pull adds a copy containing
-   the mistake, and retention evicts the oldest copy each time you are past 30.
+1. **Do not pull again until you have decided, and avoid restarting the Pi.**
+   A pull adds a copy containing the mistake, and retention evicts the oldest
+   copy each time you are past 30. A restart takes an on-Pi backup containing
+   it.
 2. Find the newest copy from *before* the mistake. The names are UTC timestamps.
    Inspect a candidate on the Mac with `sqlite3 -readonly` before choosing. The
-   on-Pi backups (`/var/lib/darts/backups/`) are candidates too, if a deploy
-   happened recently.
+   on-Pi backups (`/var/lib/darts/backups/`) are usually the closest: there is
+   one from every start of the app. **Act within a day.** Retention keeps the
+   newest backup in each hour for 24 hours, but only the newest in each day
+   after that, and every start after the mistake takes a backup that contains
+   it. Today's pre-mistake backups last only as long as their hour buckets
+   do.
 3. [Restore it](#restoring-a-mac-copy-onto-the-pi). For an on-Pi backup, skip
    the `scp` and point `--from` at it through a read-only mount of
    `/var/lib/darts/backups`.
@@ -206,69 +218,95 @@ after the mistake. The database you replaced is kept as
 ## The recorded drill
 
 **Verified against a stand-in Linux host over SSH, not on the Pi.** The stand-in
-is the aarch64 Ubuntu 24.04 VM from #29 and #30, running `main` deployed as
-`7b571ce`, reached from the Mac through colima's forward of port 8000. The drill
-on the Pi itself is part of #32's device pass.
+is the aarch64 Ubuntu 24.04 VM from #29 and #30, running this branch deployed as
+`addd005`, and reached from the Mac through colima's forward of port 8000. The
+drill on the Pi itself is part of #32's device pass.
 
-Recorded 2026-09-30, times UTC.
+Recorded 2026-09-30, times UTC. An earlier run the same day, on `main` as
+`7b571ce` before automatic backups existed, passed the same way.
 
-**The data.** 210 matches played through the HTTP API beforehand: 150 best-of-3
-x01 (501 and 301, double out, with busts and checkouts) and 60 cricket (standard
-and cut-throat), between six players. That joined the stand-in's existing
-history for **15,336 darts, 215 matches and 23 players**.
+**The data.** 210 matches were played through the HTTP API beforehand: 150
+best-of-3 x01 (501 and 301, double out, with busts and checkouts) and 60 cricket
+(standard and cut-throat), between six players. With the stand-in's existing
+history that made **15,336 darts, 215 matches and 24 players**.
 
-**Before (19:31:24).** Digests of the three exports, taken twice to prove they
+**Before (19:50:26).** Digests of the three exports, taken twice to prove they
 are stable:
 
 | Export | sha256 | Bytes | Rows |
 | --- | --- | --- | --- |
 | `darts.csv` | `7873be2c7c260ffbb3b44c3d7a2c331f239315d3969170652a47bbf17fa5c241` | 2,275,425 | 15,336 darts |
 | `matches.csv` | `b8324524f4bee540be2b8cb5c8228e708db786ee2f7b6b301a2e37ec1d6f1cc0` | 43,578 | 215 matches |
-| `stats.json`* | `0b1d73ac34e51bb513ea96ad76b815b41fe4b46416b1e6e5b2959caaa419fc63` | 43,565 | 23 players |
+| `stats.json`* | `001d69cb87ffa5811a877382e1d2d0a2c0a591f0eaa3ff756dbab8aa76fd2504` | 44,525 | 24 players |
 
 \* Canonicalised: `generated_at` removed, keys sorted.
 
-**The pull (19:31:27).** `scripts/backup-pull.sh` pointed at the stand-in:
+**The pull (19:50:29).** `scripts/backup-pull.sh` pointed at the stand-in:
 
 ```
-==> pulled darts-20260930T193127Z.db (4411392 bytes, schema version 3, integrity ok) in 0s
+==> pulled darts-20260930T195029Z.db (4411392 bytes, schema version 3, integrity ok) in 0s
 ```
 
-94 ms wall time. `PRAGMA integrity_check` on the Mac: `ok`. The copy's sha256 was
-`08bd007fe51ce10cc8177959055deffa4d07c227a5dbcf4ac4e691bcb0eb73ec`, and it held
-15,336 darts and 215 matches.
+98 ms wall time. `PRAGMA integrity_check` on the Mac: `ok`.
 
-**The wipe (19:31:27).** The container was stopped, then `darts.db` and its
-sidecars, **all five on-Pi backups** and **both files on the share** were
-deleted, leaving the three directories empty, as a freshly bootstrapped card has
-them. Wiping only `darts.db` would have tested the Pi's own recovery rather than
-the Mac's copy.
+**The wipe (19:50:29).** The container was stopped, then `darts.db` and its
+sidecars, **every on-Pi backup** and **both files on the share** were deleted.
+That left the three directories empty, as a freshly bootstrapped card has them.
+Wiping only `darts.db` would have tested the Pi's own recovery rather than the
+Mac's copy.
 
-**The trap, reproduced (19:31:28).** The container was started on the wiped
+**The trap, reproduced (19:50:30).** The container was started on the wiped
 state, as a fresh deploy would start it:
 
 ```json
-{"status":"healthy","schema_version":3,"git_sha":"7b571ce","version":"0.1.0","auto_restored":false,"checked_at":"2026-09-30T19:31:28Z","detail":"created a new database"}
+{"status":"healthy","schema_version":3,"git_sha":"addd005","version":"0.1.0","auto_restored":false,"checked_at":"2026-09-30T19:50:30Z","detail":"created a new database"}
 ```
 
-Healthy, with 0 darts, 0 matches and 0 players.
+Healthy, with 0 darts, 0 matches and 0 players. The automatic backup correctly
+refused to save it:
 
-**The restore (19:31:29 to 19:31:31).** Exactly [the procedure
+```
+19:50:30.448Z msg="boot check complete" ... detail="created a new database"
+19:50:30.450Z msg="automatic backup skipped: no matches yet"
+```
+
+**The restore (19:50:31 to 19:50:32).** Exactly [the procedure
 above](#restoring-a-mac-copy-onto-the-pi):
 
 ```
-restored /var/lib/darts/darts.db from /restore/darts-20260930T193127Z.db; previous database kept at /var/lib/darts/darts.replaced-20260930T193130Z.db
+restored /var/lib/darts/darts.db from /restore/darts-20260930T195029Z.db; previous database kept at /var/lib/darts/darts.replaced-20260930T195031Z.db
 ```
 
-Stop to healthy took **1.9 s**. `/api/healthz` then reported `"detail":null`.
-Everything in `/var/lib/darts` was owned by 1000, and the database was back in
-`wal` mode with its `-wal`/`-shm` owned by 1000. A write (creating a player)
-returned 201.
+Stop to healthy took **1.8 s**, and `/api/healthz` then reported `"detail":null`.
+The start after the restore backed the restored database up 36 ms after its
+boot check (`darts-20260930T195032Z.db`, 4,411,392 bytes), so the on-Pi archive
+was protecting the recovered history before anyone threw a dart. Everything in
+`/var/lib/darts` was owned by 1000. After the first run, the database was
+confirmed back in `wal` mode with its `-wal`/`-shm` owned by 1000, and a write
+(creating a player) returned 201.
 
-**After (19:31:31).** The same three digests, byte for byte, as before the wipe:
+**After (19:50:33).** The same three digests, byte for byte, as before the wipe:
 every dart, every match and the lifetime stats. **PASS.** From the start of the
-wipe to the verified comparison took 5.4 s, including the deliberate empty start;
-the whole drill, digests included, took 8.4 s.
+wipe to the verified comparison took 4.9 s, including the deliberate empty start;
+the whole drill, digests included, took 7.9 s.
+
+### Automatic backups on the stand-in
+
+Also verified against a stand-in Linux host over SSH, not on the Pi. After the
+deploy of `addd005`, the first start backed up 36 ms after its boot check.
+`colima restart` then rebooted the VM itself, the closest the stand-in comes to
+switching the Pi off and on. The app checkpointed cleanly on the way down
+(`truncated=true`), and after boot:
+
+```
+19:49:49.759Z msg="boot check complete" ... state=healthy detail=null
+19:49:49.797Z msg="automatic backup" path=/var/lib/darts/backups/darts-20260930T194949Z.db schema_version=3 pruned=1
+```
+
+`pruned=1` is retention collapsing the previous start's backup, 30 seconds
+older and in the same hour, as designed for a Pi that is switched on and off
+constantly. The 24-hour repeat was not waited out here; it is exercised in
+`tests/api/test_auto_backup.py` at a 10 ms interval.
 
 ### What the stand-in cannot tell you
 
