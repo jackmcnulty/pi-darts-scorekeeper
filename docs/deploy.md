@@ -604,9 +604,13 @@ duckdb -c "ATTACH '/Volumes/darts/darts-latest.db' AS darts (TYPE sqlite, READ_O
 writes this as `ATTACH 'darts-latest.db' (READ_ONLY); SELECT count(*) FROM
 darts;`. Without `AS`, DuckDB names the attached catalog after the file,
 `darts-latest`, and does not switch to it, so a bare `FROM darts` looks in the
-in-memory database instead. **Not verified**: DuckDB was not installed where #30
-was built. Reading a SQLite file also makes DuckDB fetch its `sqlite` extension
-on first use, so do this once with internet access.
+in-memory database instead. Measured with DuckDB 1.5.5 on a Mac, against a
+50,008-dart snapshot file (not through the mount): the ticket's form fails with
+`Catalog Error: Table with name darts does not exist! Did you mean
+"darts-latest.darts"?`, and the form above returns 50008, matching
+`snapshot.json`, leaving no sidecar. The views read through DuckDB too. Reading
+a SQLite file makes DuckDB download its `sqlite_scanner` extension on first use,
+so do this once with internet access.
 
 #### 14. The manifest advances every five minutes
 
@@ -694,6 +698,13 @@ no root-owned sidecar.
 **What the stand-in caught.** Bootstrap's first version *reloaded* smbd. The
 package had already started smbd with the stock config, and a reload does not
 rebind sockets, so `smb ports = 445` did not take effect and smbd was still
-listening on 139. It now restarts. **That fix has not yet been re-run on the
-stand-in**, so smbd there still listens on 139 until bootstrap runs again. The package also enabled `nmbd`, which
-bootstrap disables because NetBIOS is off.
+listening on 139. It now restarts; after the second run, only 445 was listening.
+The package also enabled `nmbd`, which bootstrap disables because NetBIOS is off.
+
+**The second bootstrap run was clean.** Every guarded step reported `already
+done`: both packages, the kept `smb.conf.debian-orig` (not overwritten), smbd,
+nmbd (disabled), Avahi, and the timer's enablement. The repository files were
+reinstalled and smbd and the timer restarted, as designed. Guest reads and
+refused writes behaved the same afterwards. Restarting the timer did *not* fire
+it this time, because the service had run before; the next run stayed five
+minutes after the last.

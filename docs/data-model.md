@@ -25,21 +25,24 @@ reopen it to see newer play.
 
 **Start with the views** (see [Views](#views) below), which join the tables into
 one row per dart, visit, or player-in-a-leg/match, so most questions need no
-joins. Two that run as written:
+joins. Two that run as written in both SQLite and DuckDB (which, unlike SQLite,
+wants every selected column grouped or aggregated). In DuckDB, attach first with
+`ATTACH 'darts-latest.db' AS darts (TYPE sqlite, READ_ONLY);` and prefix the
+views with `darts.`:
 
 ```sql
 -- Matches played and won, per player. Unfinished and abandoned matches excluded.
 SELECT player_name, count(*) AS matches, sum(won) AS won
 FROM v_match_players
 WHERE match_completed_at IS NOT NULL
-GROUP BY player_id
+GROUP BY player_id, player_name
 ORDER BY won DESC;
 
 -- Triples thrown, per player, in every game type.
 SELECT player_name, count(*) AS triples
 FROM v_darts
 WHERE multiplier = 3
-GROUP BY player_id
+GROUP BY player_id, player_name
 ORDER BY triples DESC;
 ```
 
