@@ -1,0 +1,27 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!--
+  An Avahi service file, not a systemd unit: it is installed as
+  /etc/avahi/services/darts.service, which is the name and directory Avahi
+  requires. Ticket #30.
+
+  Avahi already makes `darts.local` resolve -- it publishes the host's own name,
+  which is why bootstrap-pi.sh warns if the hostname is not `darts`. What this
+  file adds is an *advertisement*: it tells Finder there is an SMB server here,
+  so the Pi appears under Locations in the sidebar instead of having to be typed
+  into Go > Connect to Server. `%h` is replaced with the hostname.
+
+  The _device-info record only chooses the icon Finder draws.
+-->
+<service-group>
+  <name replace-wildcards="yes">%h</name>
+  <service>
+    <type>_smb._tcp</type>
+    <port>445</port>
+  </service>
+  <service>
+    <type>_device-info._tcp</type>
+    <port>0</port>
+    <txt-record>model=RackMac</txt-record>
+  </service>
+</service-group>

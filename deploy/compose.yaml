@@ -1,7 +1,9 @@
 # How the Pi runs the scorekeeper.
 #
-# There is deliberately no systemd unit anywhere in this repository.
-# `restart: unless-stopped` provides both halves of what a unit would:
+# There is deliberately no systemd unit for the app. (#30's darts-snapshot
+# timer is a unit, but it runs nothing of the app's -- it asks this container
+# over HTTP to publish a snapshot.) `restart: unless-stopped` provides both
+# halves of what a unit for the app would:
 # Docker's own service is enabled at boot (bootstrap-pi.sh does that), and it
 # restarts this container on boot and after a crash. "unless-stopped" rather
 # than "always" so that an operator who deliberately stops the container over

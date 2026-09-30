@@ -20,6 +20,7 @@ someone's Pi.
 """
 
 import os
+import socket
 import subprocess
 from pathlib import Path
 
@@ -30,6 +31,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = REPO_ROOT / "scripts" / "bootstrap-pi.sh"
 EXAMPLE_ENV = REPO_ROOT / "deploy" / "darts.env.example"
 COMPOSE_FILE = REPO_ROOT / "deploy" / "compose.yaml"
+SMB_CONF = REPO_ROOT / "deploy" / "smb-darts.conf"
+AVAHI_SERVICE = REPO_ROOT / "deploy" / "avahi-darts.service"
 
 #: The uid/gid baked into deploy/Dockerfile, and `pi` on Raspberry Pi OS.
 CONTAINER_OWNER = "1000:1000"
@@ -65,12 +68,16 @@ def dry_run(tmp_path: Path):
     and then owns the developer's machine.
     """
 
-    def run(*args: str) -> DryRun:
+    def run(*args: str, **overrides: str) -> DryRun:
         env = {
             **os.environ,
             "BOOTSTRAP_STATE_DIR": str(tmp_path / "var/lib/darts"),
             "BOOTSTRAP_SHARE_DIR": str(tmp_path / "srv/darts-share"),
             "BOOTSTRAP_ETC_DIR": str(tmp_path / "etc/darts"),
+            "BOOTSTRAP_SAMBA_DIR": str(tmp_path / "etc/samba"),
+            "BOOTSTRAP_AVAHI_SERVICES_DIR": str(tmp_path / "etc/avahi/services"),
+            "BOOTSTRAP_SYSTEMD_DIR": str(tmp_path / "etc/systemd/system"),
+            **overrides,
         }
         result = subprocess.run(
             [str(SCRIPT), *args],
@@ -220,3 +227,104 @@ def test_a_real_run_refuses_without_root(dry_run) -> None:
     assert run.result.returncode != 0
     assert "must run as root" in run.result.stderr
     assert list(run.root.rglob("*")) == []
+
+
+# --- the snapshot share (#30) -----------------------------------------------
+
+
+def test_dry_run_plans_samba_and_avahi(dry_run) -> None:
+    """Planned, or already satisfied: same host-dependence as Docker above."""
+    out = dry_run("--dry-run").result.stdout
+    for package in ("samba", "avahi-daemon"):
+        assert f"{package} is installed" in out or ("apt-get install" in out and package in out), (
+            f"{package} is neither installed nor planned"
+        )
+
+
+def test_dry_run_installs_the_committed_smb_conf_whole_and_checks_it(dry_run) -> None:
+    """The whole file, not an include: Bookworm's Samba has no smb.conf.d.
+
+    And `testparm` over the installed copy, because a broken smb.conf does not
+    stop smbd -- it just serves no share, which looks like the network.
+    """
+    run = dry_run("--dry-run")
+    target = str(run.root / "etc/samba/smb.conf")
+    assert run.planned("install", "0644", str(SMB_CONF), target)
+    assert run.planned("check_samba_config", target)
+    # restart, not reload: a reload does not rebind sockets, so the stock
+    # config's port 139 survived a reload on the stand-in.
+    assert run.planned("systemctl restart smbd")
+
+
+def test_debians_smb_conf_is_kept_once_before_the_first_replacement(dry_run, tmp_path) -> None:
+    samba = tmp_path / "etc/samba"
+    samba.mkdir(parents=True)
+    (samba / "smb.conf").write_text("[homes]\n")
+
+    run = dry_run("--dry-run")
+    assert run.planned("cp", str(samba / "smb.conf"), str(samba / "smb.conf.debian-orig"))
+
+
+def test_the_kept_original_is_never_overwritten(dry_run, tmp_path) -> None:
+    """By the second run smb.conf is ours; copying it over the original loses Debian's."""
+    samba = tmp_path / "etc/samba"
+    samba.mkdir(parents=True)
+    (samba / "smb.conf").write_text("ours\n")
+    (samba / "smb.conf.debian-orig").write_text("debian\n")
+
+    run = dry_run("--dry-run")
+    assert not run.planned("cp", "smb.conf.debian-orig")
+    assert run.planned("skip", "smb.conf.debian-orig")
+    assert run.planned("install", str(SMB_CONF), str(samba / "smb.conf")), "still replaced"
+
+
+def test_dry_run_advertises_the_share_over_avahi(dry_run) -> None:
+    run = dry_run("--dry-run")
+    target = str(run.root / "etc/avahi/services/darts.service")
+    assert run.planned("install", str(AVAHI_SERVICE), target)
+    out = run.result.stdout
+    assert "systemctl enable avahi-daemon" in out or "avahi-daemon is enabled" in out
+
+
+def test_dry_run_installs_and_enables_the_snapshot_timer(dry_run) -> None:
+    run = dry_run("--dry-run")
+    for unit in ("darts-snapshot.service", "darts-snapshot.timer"):
+        target = str(run.root / "etc/systemd/system" / unit)
+        assert run.planned("install", str(REPO_ROOT / "deploy" / unit), target), unit
+    assert run.planned("systemctl daemon-reload")
+    out = run.result.stdout
+    assert "systemctl enable darts-snapshot.timer" in out or "timer is enabled" in out
+    assert run.planned("systemctl restart darts-snapshot.timer")
+
+
+def test_the_timer_is_installed_after_its_units_are_reloaded(dry_run) -> None:
+    """Enabling a unit systemd has not re-read enables the old one, or nothing."""
+    plan = dry_run("--dry-run").plan
+    reload = next(i for i, line in enumerate(plan) if "daemon-reload" in line)
+    installs = [i for i, line in enumerate(plan) if "install" in line and "darts-snapshot." in line]
+    starts = [i for i, line in enumerate(plan) if "restart darts-snapshot.timer" in line]
+    assert max(installs) < reload < min(starts)
+
+
+def test_a_wrong_hostname_is_warned_about_not_changed(dry_run) -> None:
+    run = dry_run("--dry-run", BOOTSTRAP_HOSTNAME="definitely-not-this-host")
+    assert "not 'definitely-not-this-host'" in run.result.stderr
+    # Matched on the command, not anywhere in the line: tmp_path contains this
+    # test's name, which contains "hostname".
+    commands = [line.split()[1] for line in run.plan if line.startswith("plan: ")]
+    assert not {"hostname", "hostnamectl", "raspi-config"} & set(commands)
+
+
+def test_the_right_hostname_is_not_warned_about(dry_run) -> None:
+    current = socket.gethostname().split(".")[0]
+    run = dry_run("--dry-run", BOOTSTRAP_HOSTNAME=current)
+    assert "hostname is" not in run.result.stderr
+    assert run.planned("skip", f"hostname is {current}")
+
+
+def test_nothing_is_ever_shared_out_of_the_state_directory(dry_run) -> None:
+    """The live database must never be on the share; see deploy/smb-darts.conf."""
+    run = dry_run("--dry-run")
+    samba_steps = [line for line in run.plan if "samba" in line or "smb" in line]
+    assert samba_steps
+    assert not any(str(run.root / "var/lib/darts") in line for line in samba_steps)
