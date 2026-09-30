@@ -40,12 +40,22 @@ def build_dist(root: Path) -> Path:
 
 
 def make_settings(
-    tmp_path: Path, *, static_dir: Path | None = None, sha: str = "cafe1234"
+    tmp_path: Path,
+    *,
+    static_dir: Path | None = None,
+    sha: str = "cafe1234",
+    backup_interval_hours: int = 0,
 ) -> Settings:
-    """Settings that touch nothing outside `tmp_path`."""
+    """Settings that touch nothing outside `tmp_path`.
+
+    Automatic backups are off unless a test asks for them: they run on a
+    background thread, and a test about something else should not find a
+    backup it did not take in the directory it is asserting over.
+    """
     return Settings(
         db_path=tmp_path / "darts.db",
         backup_dir=tmp_path / "backups",
+        backup_interval_hours=backup_interval_hours,
         snapshot_dir=tmp_path / "snapshots",
         static_dir=static_dir if static_dir is not None else tmp_path / "absent-dist",
         port=8000,

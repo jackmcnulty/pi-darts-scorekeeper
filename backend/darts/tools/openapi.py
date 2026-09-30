@@ -41,6 +41,7 @@ def _throwaway_settings(root: Path) -> Settings:
     return Settings(
         db_path=root / "openapi.db",
         backup_dir=root / "backups",
+        backup_interval_hours=0,
         snapshot_dir=root / "snapshots",
         static_dir=root / "absent-dist",
         port=8000,

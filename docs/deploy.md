@@ -27,12 +27,14 @@ asks the container over HTTP to publish a snapshot.
 | `deploy/darts-snapshot.service` | `curl -X POST /api/admin/snapshot`, sandboxed. |
 | `deploy/darts-snapshot.timer` | Runs it every five minutes. |
 | `deploy/avahi-darts.service` | Advertises the share to Finder. An Avahi file, not a unit. |
+| `scripts/backup-pull.sh` | Run on the Mac: pull a verified copy off the Pi. See `docs/dr.md`. |
+| `scripts/backup-pull-lib.sh` | Its retention, staleness and curl decisions. Pure, unit-tested. |
 
 ## The layout on the host
 
 ```
 /var/lib/darts/darts.db       the live database
-/var/lib/darts/backups/       darts-backup writes here
+/var/lib/darts/backups/       the app (every start, every 24 h) and deploy.sh write here
 /srv/darts-share/             snapshots, shared read-only by #30
 /etc/darts/darts.env          configuration, loaded by compose
 /etc/darts/compose.yaml       what deploy.sh drives the container with
