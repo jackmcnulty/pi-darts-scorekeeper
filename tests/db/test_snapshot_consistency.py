@@ -13,6 +13,7 @@ dart whose visit is missing. `foreign_key_check` reports that, and so does the
 3:1 ratio, and both are asserted on every snapshot taken.
 """
 
+import json
 import sqlite3
 import threading
 import time
@@ -184,3 +185,97 @@ def test_user_version_survives_a_snapshot_taken_mid_play(tmp_path: Path) -> None
     with closing(sqlite3.connect(read_only_uri(result.path), uri=True)) as conn:
         assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == expected
     assert result.schema_version == expected
+
+
+def test_racing_publishers_and_several_writers_leave_a_matching_pair(tmp_path: Path) -> None:
+    """#30: two writers, and two publishers racing each other.
+
+    On the Pi there are two ways into `snapshot.create` inside one process -- the
+    five-minute timer's `POST /api/admin/snapshot` and the snapshot queued when
+    a match is won -- and nothing stops them landing together, while darts are
+    still being written. Two failures are possible and both are asserted
+    against. A torn copy: every file a publisher reads back must pass
+    `integrity_check` and hold whole visits. And a mismatched pair, where
+    `snapshot.json` describes a database that has since been replaced: the
+    final pair must agree row for row and byte for byte.
+
+    This is a soundness test, not the proof of the publishing lock. Racing
+    naturally almost never lands in the gap the lock closes -- with the lock
+    removed this test still passed 20 runs out of 20 -- so the lock is proved
+    deterministically by the forced interleaving in
+    `tests/services/test_snapshot.py`.
+
+    Two writers rather than one because the ticket says "concurrent writes":
+    SQLite serialises them, and the snapshot must be indifferent to whose
+    commit it catches.
+    """
+    database = tmp_path / "darts.db"
+    snapshots = tmp_path / "snapshots"
+    with connection(database) as conn:
+        scaffold(conn)
+
+    stop = threading.Event()
+    failures: list[BaseException] = []
+    committed: list[int] = []
+
+    def writer(offset: int) -> None:
+        # Disjoint index ranges keep the two writers' visit ids, visit indexes
+        # and client dart ids from colliding on the schema's unique keys.
+        try:
+            with connection(database) as conn:
+                index = offset
+                while not stop.is_set():
+                    with transaction(conn):
+                        add_visit(conn, index)
+                    committed.append(index)
+                    index += 1
+        except BaseException as exc:  # pragma: no cover - reported by the assertion below
+            failures.append(exc)
+
+    judged: list[tuple[int, int]] = []
+
+    def publisher() -> None:
+        try:
+            for _ in range(10):
+                result = snapshot.create(database, snapshots)
+                # Whichever run's file is at the path now, it must be sound.
+                aside = tmp_path / f"judged-{threading.get_ident()}-{len(judged)}.db"
+                aside.write_bytes(result.path.read_bytes())
+                assert verify_file(aside) is None
+                visits, darts = _counts(aside)
+                assert darts == visits * 3, "a copy caught a visit mid-commit"
+                judged.append((visits, darts))
+        except BaseException as exc:  # pragma: no cover - reported by the assertion below
+            failures.append(exc)
+
+    writers = [threading.Thread(target=writer, args=(o,)) for o in (0, 1_000_000)]
+    for thread in writers:
+        thread.start()
+    try:
+        deadline = time.monotonic() + 30
+        while len(committed) < 10:
+            assert not failures, failures
+            assert time.monotonic() < deadline, "the writers made no progress"
+            time.sleep(0.001)
+        publishers = [threading.Thread(target=publisher) for _ in range(2)]
+        for thread in publishers:
+            thread.start()
+        for thread in publishers:
+            thread.join(timeout=60)
+    finally:
+        stop.set()
+        for thread in writers:
+            thread.join(timeout=30)
+
+    assert not failures, failures
+    assert len(judged) == 20
+    assert {index < 1_000_000 for index in committed} == {True, False}, "both writers wrote"
+
+    published = snapshot.snapshot_path(snapshots)
+    manifest = json.loads(snapshot.manifest_path(snapshots).read_text(encoding="utf-8"))
+    visits, darts = _counts(published)
+    assert manifest["row_counts"]["visits"] == visits
+    assert manifest["row_counts"]["darts"] == darts
+    assert manifest["size_bytes"] == published.stat().st_size
+    # And no publisher left a temporary behind.
+    assert sorted(p.name for p in snapshots.iterdir()) == ["darts-latest.db", "snapshot.json"]

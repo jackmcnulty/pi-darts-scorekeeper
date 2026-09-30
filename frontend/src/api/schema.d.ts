@@ -210,6 +210,9 @@ export interface paths {
      *     store responses and will not replay history. The same key describing a
      *     different dart, or aimed at a different leg, is a 409 rather than somebody
      *     else's throw.
+     *
+     *     The dart that wins the match also republishes the database snapshot, after
+     *     this response has been sent. A snapshot that fails never fails the dart.
      */
     post: operations['record_dart_api_legs__leg_id__darts_post']
     delete?: never

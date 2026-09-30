@@ -6,6 +6,11 @@
 # into /etc/darts, and enables Docker at boot. It does not start the app --
 # deploying an image is #29's job.
 #
+# It also sets up #30's read-only snapshot share: Samba serving /srv/darts-share,
+# Avahi advertising it, and a systemd timer that asks the app to republish the
+# snapshot every five minutes. Samba runs on the host, not in a container,
+# because it needs the host's network and files and gains nothing from Docker.
+#
 # Everything that lives on the host is owned by this script, so that a deploy is
 # only ever about images and the container. That division is why scripts/deploy.sh
 # needs no source checkout on the Pi and no root at any point.
@@ -43,6 +48,13 @@ cd -- "$repo_root"
 STATE_DIR="${BOOTSTRAP_STATE_DIR:-/var/lib/darts}"
 SHARE_DIR="${BOOTSTRAP_SHARE_DIR:-/srv/darts-share}"
 ETC_DIR="${BOOTSTRAP_ETC_DIR:-/etc/darts}"
+SAMBA_DIR="${BOOTSTRAP_SAMBA_DIR:-/etc/samba}"
+AVAHI_SERVICES_DIR="${BOOTSTRAP_AVAHI_SERVICES_DIR:-/etc/avahi/services}"
+SYSTEMD_DIR="${BOOTSTRAP_SYSTEMD_DIR:-/etc/systemd/system}"
+
+# The name the share is reached by: smb://darts.local/darts. Avahi publishes the
+# host's own name, so this is a hostname check, not an Avahi setting.
+SHARE_HOSTNAME="${BOOTSTRAP_HOSTNAME:-darts}"
 
 # The account that gets docker-group access. uid 1000 on Raspberry Pi OS, which
 # is the same uid the container runs as -- see deploy/Dockerfile.
@@ -252,6 +264,128 @@ install_compose_file() {
   run cp "$source" "$target"
 }
 
+# --- The snapshot share (#30) ----------------------------------------------
+#
+# Everything below follows the same rule as compose.yaml: these are repository
+# artefacts, not operator files, so they are replaced on every run and the
+# service that reads them is reloaded on every run. That is how a changed
+# smb.conf or timer reaches an already-bootstrapped Pi, and why none of them is
+# guarded the way darts.env is.
+
+package_installed() {
+  # In an `if`, so pipefail cannot abort the script when dpkg-query is absent or
+  # the package is unknown -- both of which simply mean "not installed".
+  dpkg-query -W -f='${Status}' "$1" 2>/dev/null | grep -q 'install ok installed'
+}
+
+install_share_packages() {
+  local missing=() package
+  for package in samba avahi-daemon; do
+    if package_installed "$package"; then
+      skip "${package} is installed"
+    else
+      missing+=("$package")
+    fi
+  done
+  if [ "${#missing[@]}" -gt 0 ]; then
+    run apt-get update
+    run apt-get install -y "${missing[@]}"
+  fi
+}
+
+# Checks the installed file the way smbd will read it. A broken smb.conf would
+# otherwise surface only as a share that silently is not there.
+check_samba_config() {
+  testparm -s "$1" >/dev/null
+}
+
+install_samba_config() {
+  local target="${SAMBA_DIR}/smb.conf"
+  local original="${SAMBA_DIR}/smb.conf.debian-orig"
+  local source="${repo_root}/deploy/smb-darts.conf"
+
+  [ -f "$source" ] || die "missing: ${source}"
+
+  # Debian's own file is kept once, before the first replacement, so that the
+  # stock configuration can be recovered. Never overwritten afterwards: by the
+  # second run smb.conf is ours, and "backing it up" would destroy the original.
+  if [ -f "$original" ]; then
+    skip "Debian's smb.conf kept at ${original}"
+  elif [ -f "$target" ]; then
+    run cp "$target" "$original"
+  else
+    skip "no stock smb.conf to keep"
+  fi
+
+  run install -m 0644 "$source" "$target"
+  run check_samba_config "$target"
+}
+
+enable_service() {
+  local unit="$1"
+  if systemctl is-enabled --quiet "$unit" 2>/dev/null; then
+    skip "${unit} is enabled at boot"
+  else
+    run systemctl enable "$unit"
+  fi
+}
+
+start_samba() {
+  enable_service smbd
+  # reload-or-restart on every run, so a replaced smb.conf takes effect now
+  # rather than whenever smbd next happens to re-read it.
+  run systemctl reload-or-restart smbd
+
+  # smb-darts.conf turns NetBIOS off, which leaves nmbd with nothing to do.
+  # Stopped rather than left to fail at every boot. Guarded both ways: absent on
+  # a host whose Samba packaging has no nmbd, already disabled on a re-run.
+  if systemctl is-enabled --quiet nmbd 2>/dev/null; then
+    run systemctl disable --now nmbd
+  else
+    skip "nmbd is not enabled (NetBIOS is off)"
+  fi
+}
+
+install_avahi_service() {
+  local source="${repo_root}/deploy/avahi-darts.service"
+  [ -f "$source" ] || die "missing: ${source}"
+
+  # Avahi watches this directory and picks the file up without a restart.
+  run install -m 0644 "$source" "${AVAHI_SERVICES_DIR}/darts.service"
+  enable_service avahi-daemon
+}
+
+# Warned, not fixed. Renaming a live box also means rewriting /etc/hosts, and
+# the right time to choose the name is when the SD card is flashed -- Raspberry
+# Pi Imager asks for it. Everything else in #30 works under any name; only the
+# address changes.
+check_hostname() {
+  local current=""
+  current="$(hostname 2>/dev/null)" || current=""
+  current="${current%%.*}"
+  if [ "$current" = "$SHARE_HOSTNAME" ]; then
+    skip "hostname is ${SHARE_HOSTNAME}, so ${SHARE_HOSTNAME}.local resolves"
+  else
+    warn "hostname is '${current:-unknown}', not '${SHARE_HOSTNAME}': the share will be at" \
+      "smb://${current:-<this-pi>}.local/darts, not smb://${SHARE_HOSTNAME}.local/darts." \
+      "Set the name in Raspberry Pi Imager, or: sudo raspi-config nonint do_hostname ${SHARE_HOSTNAME}"
+  fi
+}
+
+install_snapshot_timer() {
+  local unit
+  for unit in darts-snapshot.service darts-snapshot.timer; do
+    [ -f "${repo_root}/deploy/${unit}" ] || die "missing: ${repo_root}/deploy/${unit}"
+    run install -m 0644 "${repo_root}/deploy/${unit}" "${SYSTEMD_DIR}/${unit}"
+  done
+  run systemctl daemon-reload
+  enable_service darts-snapshot.timer
+  # Restarted on every run so a changed schedule applies now. Restarting a
+  # timer does not fire its service; the first run is still OnBootSec or
+  # OnUnitActiveSec away.
+  run systemctl restart darts-snapshot.timer
+}
+
 # --- Result ----------------------------------------------------------------
 
 # The point of the whole exercise: the URL to type into the phone.
@@ -275,6 +409,10 @@ print_lan_url() {
   log ""
   log "    http://${address}:${port}/"
   log ""
+  log "and its snapshots, read-only, from Finder (Go > Connect to Server):"
+  log ""
+  log "    smb://${SHARE_HOSTNAME}.local/darts"
+  log ""
 }
 
 main() {
@@ -291,6 +429,13 @@ main() {
   ensure_etc_dir
   install_env_file
   install_compose_file
+
+  install_share_packages
+  install_samba_config
+  start_samba
+  install_avahi_service
+  check_hostname
+  install_snapshot_timer
 
   print_lan_url
 }

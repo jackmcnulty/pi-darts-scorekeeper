@@ -1,0 +1,38 @@
+# Republish the Samba share's snapshot, by asking the running app to do it.
+# Started every five minutes by darts-snapshot.timer. Ticket #30.
+#
+# Why curl and not `darts-snapshot`. The console script lives in the app's
+# virtualenv, which exists only inside the image; the Pi has no Python of its
+# own for it to run under, and #29 keeps it that way. POST /api/admin/snapshot
+# does exactly what the console script does, inside the container, as uid 1000.
+#
+# That is also what keeps this unit out of the WAL-sidecar trap described at the
+# top of docs/deploy.md. Nothing here opens darts.db: the process that copies it
+# is the process that already owns it. So the unit needs no file access at all
+# and runs as a throwaway user with none.
+#
+# If the app is down the POST fails, this unit fails into the journal, and the
+# share keeps serving the last good snapshot. snapshot.json's `created_at` says
+# how old that is, which is the honest answer.
+#
+#   systemctl status darts-snapshot.service
+#   journalctl -u darts-snapshot.service      # each run logs the manifest it got
+
+[Unit]
+Description=Publish a snapshot of the darts database to /srv/darts-share
+
+[Service]
+Type=oneshot
+
+# 8000 is the port deploy/compose.yaml publishes. Loopback, because the only
+# thing that should be able to trigger this from the host is the host.
+ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 60 \
+    --request POST http://127.0.0.1:8000/api/admin/snapshot
+
+# It needs the loopback network and nothing else.
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+IPAddressDeny=any
+IPAddressAllow=localhost

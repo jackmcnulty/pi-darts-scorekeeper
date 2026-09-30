@@ -1,0 +1,26 @@
+# Every five minutes, publish a fresh snapshot for the Samba share. Ticket #30.
+#
+# Five minutes because the share is for looking at data afterwards, not for
+# watching a game live: a stats session on the Mac can tolerate a snapshot a few
+# minutes old, and a match that finishes is published within seconds anyway by
+# the app itself (the match-completion hook in darts.api.play). Each run is one
+# sqlite3 backup of a database measured in hundreds of kilobytes.
+#
+# Monotonic (OnUnitActiveSec) rather than wall-clock (OnCalendar), because the
+# Pi has no battery-backed clock by default: until NTP syncs after a power cut
+# the wall clock can be wrong, and a calendar timer would fire late, early or
+# in a burst. "Five minutes since the last run" is correct whatever the clock
+# says. AccuracySec is tightened from systemd's default of one minute, which
+# would otherwise let each firing drift by up to a minute to coalesce wake-ups.
+
+[Unit]
+Description=Publish a darts snapshot every five minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+AccuracySec=1s
+Unit=darts-snapshot.service
+
+[Install]
+WantedBy=timers.target

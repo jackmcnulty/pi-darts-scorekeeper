@@ -3,8 +3,8 @@
 This is `darts.db.backup` with the history taken out. A backup is a growing,
 timestamped, pruned archive that an operator restores from; a snapshot is a
 single file at a path other machines can be pointed at once and keep reading
-from -- `//darts/snapshots/darts-latest.db` on #30's Samba share, and whatever
-#31 pulls off the Pi. So the name never changes, nothing is retained and nothing
+from -- `smb://darts.local/darts/darts-latest.db` on #30's Samba share, and
+whatever #31 pulls off the Pi. So the name never changes, nothing is retained and nothing
 is pruned; each run simply replaces what the last one published.
 
 Everything that makes the artifact trustworthy is `darts.db.artifact`'s and is
@@ -20,6 +20,8 @@ previous one, but never a manifest promising a snapshot that is not there. The
 manifest carries `created_at`, so a reader can always tell which it has.
 """
 
+import os
+import threading
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +42,18 @@ MANIFEST_NAME = "snapshot.json"
 #: leading dot keeps a half-written copy out of a directory listing and out of
 #: the way of anything globbing for `*.db`.
 _TEMP_PREFIX = ".darts-snapshot-"
+
+#: rw-r--r--. `mkstemp` creates temporaries 0600 and a rename keeps the mode, so
+#: without this the published pair belongs to uid 1000 alone and the Samba guest
+#: (`nobody`) sees both names in Finder and can open neither. Backups keep 0600:
+#: they are not shared, and nothing but the app should read them.
+SHARED_MODE = 0o644
+
+#: One publisher at a time within this process. A `threading.Lock` rather than a
+#: file lock because every caller that matters on the Pi is in the app process --
+#: the timer reaches it over HTTP -- and the CLI is for an operator who is not
+#: racing the timer. See the module docstring.
+_publishing = threading.Lock()
 
 
 @dataclass(frozen=True)
@@ -115,17 +129,19 @@ def create(database: Path, snapshot_dir: Path, *, now: datetime | None = None) -
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     target = snapshot_path(snapshot_dir)
 
-    temporary = copy_of(database, snapshot_dir)
-    try:
-        manifest = {
-            "snapshot": SNAPSHOT_NAME,
-            **describe(temporary, source=database, created_at=timestamp(now)),
-        }
-    except BaseException:
-        discard(temporary)
-        raise
-    publish(temporary, target)
+    with _publishing:
+        temporary = copy_of(database, snapshot_dir)
+        try:
+            os.chmod(temporary, SHARED_MODE)
+            manifest = {
+                "snapshot": SNAPSHOT_NAME,
+                **describe(temporary, source=database, created_at=timestamp(now)),
+            }
+        except BaseException:
+            discard(temporary)
+            raise
+        publish(temporary, target)
 
-    manifest_target = manifest_path(snapshot_dir)
-    write_json(manifest_target, manifest)
+        manifest_target = manifest_path(snapshot_dir)
+        write_json(manifest_target, manifest, mode=SHARED_MODE)
     return SnapshotResult(target, manifest_target, manifest)

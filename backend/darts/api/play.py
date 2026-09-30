@@ -29,21 +29,41 @@ somebody walked away from is the point of keeping it.
 Nothing here decides a rule. `services.play` owns scoring, rotation, busts,
 undo, advancement and its own transactions; this module validates a payload,
 calls one function, and maps frozen dataclasses onto the wire.
+
+The dart that wins a match republishes the snapshot
+---------------------------------------------------
+#30 wants a finished match on the Samba share within seconds rather than at the
+next five-minute tick. The hook is here rather than in `services.play` because
+the service decides the win *inside* the dart's transaction, and a snapshot taken
+there would copy the database from before the win committed. This is the first
+point at which the win is both known and durable.
+
+It runs as a background task, after the response has been sent, so the winning
+dart never waits on a copy of the database. And it cannot fail the dart: the dart
+is already committed and answered, and a failed snapshot is logged and
+otherwise ignored -- the next timer tick publishes one anyway, and
+`snapshot.json`'s `created_at` tells a reader how old the file is. A retry of
+the winning dart reports the match complete again and republishes again, which
+is harmless: a snapshot is idempotent.
 """
 
+import logging
 import sqlite3
 from typing import Annotated
 
-from fastapi import APIRouter, Path
+from fastapi import APIRouter, BackgroundTasks, Path
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from darts.api.deps import ConnectionDep
+from darts.api.deps import ConnectionDep, SettingsDep
+from darts.config import Settings
 from darts.engine.throws import ALL_THROWS, Throw
 from darts.repo.config import GameConfig
 from darts.repo.errors import NotFoundError
 from darts.repo.matches import MatchStatus, get_match
-from darts.services import hints, play
+from darts.services import hints, play, snapshot
 from darts.services import state as public
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", tags=["play"])
 
@@ -362,8 +382,31 @@ def get_match_darts(match_id: MatchId, conn: ConnectionDep) -> MatchHistoryRespo
     )
 
 
+def _snapshot_after_match(settings: Settings, match_id: int) -> None:
+    """Republish the snapshot for a match that has just been won. Never raises.
+
+    `Exception` rather than `OSError`: nothing a snapshot can go wrong with is
+    worth an unhandled error after a response the client has already accepted.
+    """
+    try:
+        result = snapshot.create(settings.db_path, settings.snapshot_dir)
+    except Exception:
+        logger.exception("snapshot after match failed", extra={"match_id": match_id})
+        return
+    logger.info(
+        "snapshot after match",
+        extra={"match_id": match_id, "created_at": result.created_at, "bytes": result.size_bytes},
+    )
+
+
 @router.post("/legs/{leg_id}/darts", response_model=MatchStateResponse)
-def record_dart(leg_id: LegId, payload: DartWrite, conn: ConnectionDep) -> MatchStateResponse:
+def record_dart(
+    leg_id: LegId,
+    payload: DartWrite,
+    conn: ConnectionDep,
+    settings: SettingsDep,
+    background: BackgroundTasks,
+) -> MatchStateResponse:
     """Record one dart and return the whole new state.
 
     200 rather than 201: the response is the state of the match, not the dart
@@ -378,11 +421,16 @@ def record_dart(leg_id: LegId, payload: DartWrite, conn: ConnectionDep) -> Match
     store responses and will not replay history. The same key describing a
     different dart, or aimed at a different leg, is a 409 rather than somebody
     else's throw.
+
+    The dart that wins the match also republishes the database snapshot, after
+    this response has been sent. A snapshot that fails never fails the dart.
     """
-    return _state_response(
-        conn,
-        play.throw(conn, leg_id=leg_id, dart=payload.throw, client_dart_id=payload.client_dart_id),
+    state = play.throw(
+        conn, leg_id=leg_id, dart=payload.throw, client_dart_id=payload.client_dart_id
     )
+    if state.status is MatchStatus.COMPLETE:
+        background.add_task(_snapshot_after_match, settings, state.match_id)
+    return _state_response(conn, state)
 
 
 @router.post("/legs/{leg_id}/undo", response_model=MatchStateResponse)

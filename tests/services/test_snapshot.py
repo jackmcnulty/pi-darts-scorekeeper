@@ -9,6 +9,7 @@ what these tests establish by checking the properties the artifact carries.
 import json
 import os
 import sqlite3
+import threading
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -61,6 +62,32 @@ def test_it_publishes_one_fixed_filename_and_one_fixed_manifest(
         "darts-latest.db",
         "snapshot.json",
     ]
+
+
+def test_the_published_pair_is_world_readable(played: Path, snapshots: Path) -> None:
+    """#30's Samba guest is `nobody`, not the uid the app runs as.
+
+    `mkstemp` creates temporaries 0600 and a rename keeps the mode, so before
+    #30 the pair was readable by uid 1000 alone: Finder would list both files
+    and open neither. Asserted with a restrictive umask, because a permissive
+    one would pass this test without the code doing anything.
+    """
+    previous = os.umask(0o077)
+    try:
+        result = snapshot.create(played, snapshots)
+    finally:
+        os.umask(previous)
+
+    assert result.path.stat().st_mode & 0o777 == snapshot.SHARED_MODE == 0o644
+    assert result.manifest_path.stat().st_mode & 0o777 == 0o644
+
+
+def test_it_is_world_readable_on_the_second_run_too(played: Path, snapshots: Path) -> None:
+    """The timer republishes every five minutes; each run is a fresh temporary."""
+    snapshot.create(played, snapshots)
+    result = snapshot.create(played, snapshots)
+    assert result.path.stat().st_mode & 0o777 == 0o644
+    assert result.manifest_path.stat().st_mode & 0o777 == 0o644
 
 
 def test_running_it_twice_replaces_rather_than_accumulates(played: Path, snapshots: Path) -> None:
@@ -321,3 +348,69 @@ def test_two_copies_do_not_collide(played: Path, snapshots: Path) -> None:
     finally:
         first.unlink(missing_ok=True)
         second.unlink(missing_ok=True)
+
+
+# --- two publishers in one process (#30) ------------------------------------
+
+
+def test_a_second_publisher_waits_until_the_first_has_written_its_manifest(
+    played: Path, snapshots: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Forces the one interleaving that would leave a mismatched pair.
+
+    Run A is paused after publishing its database and before writing its
+    manifest. Without the lock, run B copies, publishes and writes its manifest
+    in that gap, then A resumes and writes a manifest describing a database that
+    has already been replaced. With the lock, B cannot even start copying until
+    A is done. #30 has two callers in one process -- the timer's POST and the
+    match-completion hook -- so this is not hypothetical.
+
+    Deterministic by construction: racing the two naturally almost never hits
+    the gap (measured: 0 of 20 runs of the concurrency test failed with the
+    lock removed), which is why this forces it instead.
+    """
+    in_gap = threading.Event()
+    release = threading.Event()
+    second_copying = threading.Event()
+    real_write_json = snapshot.write_json
+    real_copy_of = snapshot.copy_of
+    copies = []
+
+    def pausing_write_json(path: Path, payload: dict[str, object], **kwargs: object) -> None:
+        if not in_gap.is_set():
+            in_gap.set()
+            assert release.wait(10)
+        real_write_json(path, payload, **kwargs)  # type: ignore[arg-type]
+
+    def observed_copy_of(database: Path, directory: Path) -> Path:
+        copies.append(database)
+        if len(copies) == 2:
+            second_copying.set()
+        return real_copy_of(database, directory)
+
+    monkeypatch.setattr(snapshot, "write_json", pausing_write_json)
+    monkeypatch.setattr(snapshot, "copy_of", observed_copy_of)
+
+    first = threading.Thread(target=snapshot.create, args=(played, snapshots))
+    first.start()
+    assert in_gap.wait(10), "run A never reached its manifest"
+
+    # Something to tell the two copies apart by.
+    with connection(played) as conn, transaction(conn):
+        create_player(conn, display_name="Written between the two runs")
+
+    second = threading.Thread(target=snapshot.create, args=(played, snapshots))
+    second.start()
+    assert not second_copying.wait(0.3), "run B started while run A was mid-publication"
+
+    release.set()
+    first.join(10)
+    second.join(10)
+    assert not first.is_alive() and not second.is_alive()
+    assert second_copying.is_set()
+
+    manifest = read_manifest(snapshots)
+    with closing(sqlite3.connect(read_only_uri(snapshot.snapshot_path(snapshots)), uri=True)) as c:
+        players = c.execute("SELECT count(*) FROM players").fetchone()[0]
+    assert manifest["row_counts"]["players"] == players  # type: ignore[index]
+    assert manifest["size_bytes"] == snapshot.snapshot_path(snapshots).stat().st_size

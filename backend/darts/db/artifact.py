@@ -117,9 +117,17 @@ def describe(artifact: Path, *, source: Path, created_at: str) -> dict[str, Any]
     }
 
 
-def write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    """Publish a manifest the same way its artifact was published: atomically."""
+def write_json(path: Path, payload: Mapping[str, Any], *, mode: int | None = None) -> None:
+    """Publish a manifest the same way its artifact was published: atomically.
+
+    `mkstemp` creates the file 0600, and a rename keeps whatever mode the
+    temporary had, so a manifest meant to be read by another user needs `mode`
+    set *before* the rename -- setting it afterwards leaves a window in which the
+    published file exists and cannot be read.
+    """
     handle, name = tempfile.mkstemp(dir=path.parent, prefix=".darts-manifest-", suffix=".json")
+    if mode is not None:
+        os.fchmod(handle, mode)
     with os.fdopen(handle, "w", encoding="utf-8") as stream:
         json.dump(payload, stream, indent=2, sort_keys=True)
         stream.write("\n")
