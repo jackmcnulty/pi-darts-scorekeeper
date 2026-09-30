@@ -251,7 +251,9 @@ def test_dry_run_installs_the_committed_smb_conf_whole_and_checks_it(dry_run) ->
     target = str(run.root / "etc/samba/smb.conf")
     assert run.planned("install", "0644", str(SMB_CONF), target)
     assert run.planned("check_samba_config", target)
-    assert run.planned("systemctl reload-or-restart smbd")
+    # restart, not reload: a reload does not rebind sockets, so the stock
+    # config's port 139 survived a reload on the stand-in.
+    assert run.planned("systemctl restart smbd")
 
 
 def test_debians_smb_conf_is_kept_once_before_the_first_replacement(dry_run, tmp_path) -> None:

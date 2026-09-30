@@ -332,9 +332,12 @@ enable_service() {
 
 start_samba() {
   enable_service smbd
-  # reload-or-restart on every run, so a replaced smb.conf takes effect now
-  # rather than whenever smbd next happens to re-read it.
-  run systemctl reload-or-restart smbd
+  # A full restart on every run, not a reload. Measured on the stand-in: the
+  # package starts smbd with Debian's stock config, and a reload re-reads the
+  # shares but does not rebind sockets -- so `smb ports = 445` never took effect
+  # and smbd kept listening on 139 until something restarted it. A restart drops
+  # any mounted clients for a moment; Finder reconnects, and bootstrap is rare.
+  run systemctl restart smbd
 
   # smb-darts.conf turns NetBIOS off, which leaves nmbd with nothing to do.
   # Stopped rather than left to fail at every boot. Guarded both ways: absent on
@@ -409,9 +412,14 @@ print_lan_url() {
   log ""
   log "    http://${address}:${port}/"
   log ""
+  # The name Avahi is actually publishing, which check_hostname has already
+  # warned about if it is not the one the docs assume.
+  local name=""
+  name="$(hostname 2>/dev/null)" || name=""
+  name="${name%%.*}"
   log "and its snapshots, read-only, from Finder (Go > Connect to Server):"
   log ""
-  log "    smb://${SHARE_HOSTNAME}.local/darts"
+  log "    smb://${name:-${SHARE_HOSTNAME}}.local/darts"
   log ""
 }
 
