@@ -102,3 +102,26 @@ def test_settings_are_frozen(tmp_path: Path) -> None:
     settings = Settings.from_env({f"{ENV_PREFIX}DB_PATH": str(tmp_path / "darts.db")})
     with pytest.raises(dataclasses.FrozenInstanceError):
         settings.db_path = tmp_path / "other.db"  # type: ignore[misc]
+
+
+# --- #31: automatic backups ------------------------------------------------
+
+
+def test_automatic_backups_default_to_every_24_hours() -> None:
+    assert Settings.from_env({}).backup_interval_hours == 24
+
+
+@pytest.mark.parametrize(("value", "hours"), [("0", 0), ("6", 6), (" 48 ", 48), ("", 24)])
+def test_the_backup_interval_is_whole_hours(value: str, hours: int) -> None:
+    env = {f"{ENV_PREFIX}BACKUP_INTERVAL_HOURS": value}
+    assert Settings.from_env(env).backup_interval_hours == hours
+
+
+@pytest.mark.parametrize(
+    ("value", "said"), [("1.5", "whole number"), ("daily", "whole number"), ("-1", "negative")]
+)
+def test_a_bad_backup_interval_is_refused_rather_than_turning_backups_off(
+    value: str, said: str
+) -> None:
+    with pytest.raises(ConfigError, match=said):
+        Settings.from_env({f"{ENV_PREFIX}BACKUP_INTERVAL_HOURS": value})

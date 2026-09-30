@@ -10,8 +10,11 @@ The lifespan owns the two ends of the database's day:
 * **startup** runs #12's boot integrity check, which repairs or restores a
   damaged database and returns the status `/api/healthz` reports until the
   process exits.
-* **shutdown** folds the WAL back into the database, so the file left on the
-  card is self-contained and the next boot has nothing to replay.
+* **startup** then starts #31's automatic backups: one straight away, on a
+  background thread, and another every `DARTS_BACKUP_INTERVAL_HOURS`.
+* **shutdown** stops them, waiting for a copy in progress, and then folds the
+  WAL back into the database, so the file left on the card is self-contained
+  and the next boot has nothing to replay.
 
 Both are logged, including the checkpoint's own verdict: SQLite reports a busy
 checkpoint rather than failing, so a hook that ignored the result would claim a
@@ -21,6 +24,7 @@ clean shutdown it never achieved.
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from functools import partial
 
 from fastapi import FastAPI
 
@@ -40,6 +44,7 @@ from darts.config import Settings
 from darts.db.connection import connection
 from darts.db.durability import checkpoint_truncate
 from darts.db.recovery import check_and_recover
+from darts.services import auto_backup
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +65,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         },
     )
 
+    # After the boot check, so what is backed up is the database that passed
+    # it -- or the one it just restored. On its own thread, so startup does not
+    # wait for the copy.
+    scheduler = None
+    if settings.backup_interval_hours > 0:
+        scheduler = auto_backup.BackupScheduler(
+            partial(auto_backup.take, settings.db_path, settings.backup_dir),
+            settings.backup_interval_hours * 3600,
+        )
+        scheduler.start()
+    app.state.backups = scheduler
+
     yield
 
+    # Before the checkpoint, which cannot truncate the WAL while a copy holds a
+    # read transaction open.
+    if scheduler is not None:
+        scheduler.stop()
     _checkpoint(settings)
 
 
@@ -115,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # reports that honestly rather than assuming the best, which is what stops
     # a test that skipped the lifespan from passing for the wrong reason.
     app.state.recovery = None
+    app.state.backups = None
 
     app.add_middleware(RequestContextMiddleware)
     install_error_handlers(app)

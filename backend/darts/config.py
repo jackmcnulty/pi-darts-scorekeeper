@@ -30,6 +30,10 @@ DEFAULT_STATIC_DIR = _REPO_ROOT / "frontend" / "dist"
 DEFAULT_PORT = 8000
 DEFAULT_LOG_LEVEL = "INFO"
 
+#: The Pi backs itself up on every start and then this often (#31). 0 turns
+#: both off.
+DEFAULT_BACKUP_INTERVAL_HOURS = 24
+
 #: What /api/healthz reports when no build stamped a revision in. #28's image
 #: build sets DARTS_GIT_SHA; a source checkout has no reason to claim one.
 UNKNOWN_SHA = "unknown"
@@ -50,6 +54,8 @@ class Settings:
 
     db_path: Path
     backup_dir: Path
+    #: Automatic backups: on every start, then every this many hours. 0 is off.
+    backup_interval_hours: int
     snapshot_dir: Path
     static_dir: Path
     port: int
@@ -69,6 +75,7 @@ class Settings:
         return cls(
             db_path=db_path,
             backup_dir=_path(source, "BACKUP_DIR", default_backup_dir(db_path)),
+            backup_interval_hours=_interval(source),
             snapshot_dir=_path(source, "SNAPSHOT_DIR", db_path.parent / "snapshots"),
             static_dir=_path(source, "STATIC_DIR", DEFAULT_STATIC_DIR),
             port=_port(source),
@@ -108,6 +115,22 @@ def _port(env: Mapping[str, str]) -> int:
     if not 1 <= port <= 65535:
         raise ConfigError(f"{ENV_PREFIX}PORT is outside 1-65535: {port}")
     return port
+
+
+def _interval(env: Mapping[str, str]) -> int:
+    """Whole hours, 0 or more. A typo must not quietly turn backups off."""
+    value = _raw(env, "BACKUP_INTERVAL_HOURS")
+    if value is None:
+        return DEFAULT_BACKUP_INTERVAL_HOURS
+    try:
+        hours = int(value)
+    except ValueError:
+        raise ConfigError(
+            f"{ENV_PREFIX}BACKUP_INTERVAL_HOURS is not a whole number: {value!r}"
+        ) from None
+    if hours < 0:
+        raise ConfigError(f"{ENV_PREFIX}BACKUP_INTERVAL_HOURS is negative: {hours}")
+    return hours
 
 
 def _level(env: Mapping[str, str]) -> str:
