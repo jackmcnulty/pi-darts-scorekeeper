@@ -30,12 +30,6 @@ MAX_DARTS: Final = 3
 #: return more than this, and its default `n` matches it.
 PATHS_PER_ENTRY: Final = 3
 
-#: Doubles that halve cleanly, so a missed dart still leaves a double.
-HALVING_LADDER: Final = frozenset({"D20", "D16", "D8", "D4", "D2"})
-
-#: The setup darts a player actually wants before a finish.
-PREFERRED_SETUPS: Final = frozenset({"T20", "T19"})
-
 #: A miss can never help: it scores nothing and consumes a dart, so any path
 #: containing one is strictly worse than the same path without it.
 SCORING_THROWS: Final[tuple[Throw, ...]] = tuple(
@@ -58,48 +52,139 @@ def _finishes(out_rule: Rule, throw: Throw) -> bool:
     return throw.multiplier in (2, 3)
 
 
-def _forgiveness(throw: Throw) -> int:
-    """How forgiving the target is to miss. Bigger is better.
+# --- ranking ------------------------------------------------------------------
+#
+# #7 ranked paths by four rules in strict priority, with "finishes on the halving
+# ladder" a yes/no flag above setup quality. That let a bull setup, or a D2 or D4
+# finish, win whenever the path ended on the ladder (#40). The ranking below
+# keeps fewest darts first and the ordinal tiebreak last, and in between weighs
+# the setup darts and the finishing dart *together*, the way a player does.
+#
+# The weights are small integers on purpose: each is a judgement a player would
+# recognise, not a fitted probability. #40 checked them against the darts501.com
+# checkout chart, and the expected picks it signed off are pinned in
+# `tests/engine/test_checkout.py`. Retune here, then update that table.
 
-    The bull scores well but is the smallest target on the board, so it ranks
-    below every numbered wedge despite its segment value of 25.
-    """
-    return 0 if throw.segment == BULL else throw.segment
+#: Setup darts that make a path awkward whatever else it does. The bull is the
+#: smallest target on the board, and a double as a setup is a double you could
+#: miss before the one that counts. One bull outweighs two double setups (the
+#: most a visit can hold), so a bull-free path always wins at the same length.
+_BULL_SETUP: Final = 3
+_DOUBLE_SETUP: Final = 1
+
+#: Doubles at the bottom of the halving ladder. They halve as well as their size
+#: allows, but a player finishing on D2 is one miss from D1 and two from a bust.
+#: This penalty is what keeps D4 behind D20 and D12, which halve as often.
+_BOTTOM_OF_LADDER: Final = frozenset({"D4", "D2"})
 
 
 def _setup_cost(throw: Throw) -> int:
-    """Preference for non-finishing darts: T20/T19 beat anything, bull loses."""
-    if throw.label in PREFERRED_SETUPS:
+    """What a non-finishing dart costs, lowest first.
+
+    A single is the biggest target on the board and T20 is where a player aims
+    anyway, so both are free. T19 is the standard alternative. Any other triple
+    is a small target picked only to reach a double.
+    """
+    if throw.multiplier == 1 or throw.label == "T20":
         return 0
-    return 2 if throw.segment == BULL else 1
+    return 1 if throw.label == "T19" else 2
+
+
+def _halvings(segment: int) -> int:
+    """How many times a missed double on `segment` still leaves a double.
+
+    Miss D16 into the single and 16 is left, which is D8; miss that and D4, then
+    D2, then D1. That is four forgiven misses, the power of two in the segment.
+    """
+    count = 0
+    while segment % 2 == 0:
+        segment //= 2
+        count += 1
+    return count
+
+
+def _finish_cost(throw: Throw) -> int:
+    """What the finishing dart costs, lowest first.
+
+    A double is scored by what a miss leaves (`_halvings`): D16 and D8 survive
+    three or more misses, D20 and D12 two, D18/D14/D10/D6 one, an odd double
+    none. The bull is the smallest target, so it costs as much as an odd double.
+
+    The other two out-rules finish on more than doubles. A single, legal only on
+    a straight out, is the biggest target there is, so it is free. A triple is
+    as small a target as a double, and #40 asked for no change to how the other
+    out-rules finish, so it costs as much as the worst double: a master out
+    still prefers finishing on a double, as it did under #7's ladder flag.
+    """
+    if throw.segment == BULL or throw.multiplier == 3:
+        return 5
+    if throw.multiplier == 1:
+        return 0
+    cost = {0: 5, 1: 3, 2: 1}.get(_halvings(throw.segment), 0)
+    return cost + (1 if throw.label in _BOTTOM_OF_LADDER else 0)
+
+
+def _first_dart_rank(throw: Throw) -> int:
+    """How forgiving a first dart is. Lower is better.
+
+    A higher-numbered wedge first, and the bull last of all: it scores 25 but is
+    the smallest target on the board. On the same number the triple leads the
+    single, so the hard dart is thrown while two darts remain to repair a miss.
+    The factor of 4 keeps the multiplier (at most 3) from outweighing a segment.
+    """
+    if throw.segment == BULL:
+        return 0
+    return -(throw.segment * 4 + throw.multiplier)
 
 
 # The ranking runs over hundreds of thousands of candidate paths, so every
 # per-throw property it needs is resolved once here and looked up thereafter.
-_LADDER_RANK: Final[dict[Throw, int]] = {
-    t: (0 if t.label in HALVING_LADDER else 1) for t in SCORING_THROWS
+
+#: The most a path can cost short of awkwardness: two of the dearest setups and
+#: the dearest finish. Awkward setups are weighted in units one above it, so a
+#: single sum orders by awkwardness first and cost second, exactly as a pair of
+#: separate key elements would, but with one sum per path instead of two.
+_MAX_COST: Final = 2 * max(map(_setup_cost, SCORING_THROWS)) + max(
+    map(_finish_cost, SCORING_THROWS)
+)
+_AWKWARD_UNIT: Final = _MAX_COST + 1
+
+_SETUP_WEIGHT: Final[dict[Throw, int]] = {
+    t: _setup_cost(t)
+    + _AWKWARD_UNIT
+    * (_BULL_SETUP if t.segment == BULL else _DOUBLE_SETUP if t.multiplier == 2 else 0)
+    for t in SCORING_THROWS
 }
-_SETUP_COST: Final[dict[Throw, int]] = {t: _setup_cost(t) for t in SCORING_THROWS}
-_FIRST_DART_RANK: Final[dict[Throw, int]] = {t: -_forgiveness(t) for t in SCORING_THROWS}
+_FINISH_COST: Final[dict[Throw, int]] = {t: _finish_cost(t) for t in SCORING_THROWS}
+_FIRST_DART_RANK: Final[dict[Throw, int]] = {t: _first_dart_rank(t) for t in SCORING_THROWS}
+
+# Bound lookups, fed to `map` below. The dictionary reads then run in C with no
+# Python frame per dart, which matters most under coverage: CI instruments this
+# loop and runs close to the five-second budget (#46).
+_setup_weight = _SETUP_WEIGHT.__getitem__
+_ordinal = _ORDINAL.__getitem__
 
 
-def rank_key(path: Path) -> tuple[int, int, int, int, tuple[int, ...]]:
-    """The ordering from #7, lowest first.
+def rank_key(path: Path) -> tuple[int, int, int, tuple[int, ...]]:
+    """The ordering from #40, lowest first.
 
-    1. Fewest darts.
-    2. Finishing on the halving ladder beats an awkward double.
-    3. T20/T19 setup darts beat the bull.
-    4. A large, forgiving first dart.
+    1. Fewest darts. `generate` relies on this coming first.
+    2. One sum, in two bands:
+       a. awkward setups: no bull, then no double, wherever the same number of
+          darts can avoid them;
+       b. then the setup darts' cost plus the finishing dart's cost, weighed
+          together, so a T20 setup cannot buy a D2 finish and a D16 finish
+          cannot buy a low triple setup.
+    3. A forgiving first dart.
 
     The trailing ordinals are a deterministic tiebreak, so the generated table
     is byte-identical between runs and the no-diff CI check means something.
     """
     return (
         len(path),
-        _LADDER_RANK[path[-1]],
-        sum(_SETUP_COST[t] for t in path[:-1]),
+        sum(map(_setup_weight, path[:-1])) + _FINISH_COST[path[-1]],
         _FIRST_DART_RANK[path[0]],
-        tuple(_ORDINAL[t] for t in path),
+        tuple(map(_ordinal, path)),
     )
 
 
