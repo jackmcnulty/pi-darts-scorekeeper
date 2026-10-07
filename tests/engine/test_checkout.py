@@ -98,7 +98,26 @@ def test_master_and_straight_reach_180_but_double_stops_at_170() -> None:
     assert suggest(180, 3, Rule.MASTER)[0] == (T20, T20, T20)
 
 
+@pytest.mark.perf
 def test_generation_completes_within_five_seconds() -> None:
+    """#7 and #40's criterion: `darts-gen-checkouts` keeps a developer waiting under 5s.
+
+    Guards the time to generate the table *uninstrumented*, which is what that
+    criterion is about. CI runs it in its own step without coverage (#46):
+    under coverage every Python line in the hot loop is traced, so the number
+    measured there was about three times the real one and sat close enough to
+    5s on a shared runner to fail intermittently.
+
+    What it does not guard: a per-path slowdown too small to reach 5s for a
+    developer. #40's first draft of `rank_key` was such a change (a Python frame
+    per dart: +25% under coverage, less without, since coverage traces each of
+    those frames). On CI's runner it would likely have failed this test under
+    coverage; uninstrumented it stays well inside 5s, which is the point. Such a
+    change costs CI time, not the criterion, and review is what catches it. Nor
+    is this deterministic: it is still a wall-clock budget on shared hardware,
+    with headroom rather than a guarantee. CI prints the measured duration on
+    every run, so drift towards the limit is visible before it fails.
+    """
     started = time.perf_counter()
     generate_table()
     elapsed = time.perf_counter() - started

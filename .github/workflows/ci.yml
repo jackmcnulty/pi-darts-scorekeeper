@@ -51,8 +51,16 @@ jobs:
       - name: Checkout table is up to date
         run: uv run darts-gen-checkouts --check
 
+      # `perf` tests assert wall-clock budgets, and coverage slows the code they
+      # time about threefold, so they are left out here and run below (#46).
       - name: Test
-        run: uv run pytest --cov=backend/darts --cov-report=term-missing --cov-fail-under=85
+        run: uv run pytest -m "not perf" --cov=backend/darts --cov-report=term-missing --cov-fail-under=85
+
+      # Uninstrumented, so the budget measures what a developer waits for.
+      # --durations=0 prints each time even on a pass: the record of how much
+      # headroom the runner actually leaves.
+      - name: Performance budgets
+        run: uv run pytest -m perf --durations=0
 
   frontend:
     name: frontend
