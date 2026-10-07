@@ -146,6 +146,100 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # #32's end-to-end specs, in WebKit as an iPhone 17 Pro, against the real
+  # image on a throwaway database. No dev server: the image serves the
+  # frontend itself, exactly as on the Pi.
+  #
+  # The image is built again here rather than handed over from `image`, which
+  # would mean `docker save` and an artifact upload of a few hundred megabytes
+  # on every push. Same Dockerfile, same GIT_SHA, same GHA cache (read only --
+  # `image` is the one job that writes it), so this build is mostly cache hits,
+  # and the first spec asserts the running image reports this commit.
+  #
+  # Retries stay at 0 (playwright.config.ts): mutations never retry, so a spec
+  # that only passes on its second attempt is hiding a double submit.
+  e2e:
+    name: e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          push: false
+          load: true
+          tags: darts:e2e
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+
+      # Waits for /api/healthz. On a timeout it prints the container's log.
+      - name: Start it on a temporary database
+        run: scripts/e2e-up.sh darts:e2e
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # The browser build is tied to the Playwright version, so that is the key.
+      # A cache hit still needs WebKit's system libraries, which live in apt and
+      # not in the cache.
+      - name: Playwright version
+        id: playwright
+        working-directory: frontend
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Playwright browsers
+        id: browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-webkit-${{ runner.os }}-${{ steps.playwright.outputs.version }}
+
+      - name: Install WebKit
+        if: steps.browsers.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: npx playwright install --with-deps webkit
+
+      - name: Install WebKit's system libraries
+        if: steps.browsers.outputs.cache-hit == 'true'
+        working-directory: frontend
+        run: npx playwright install-deps webkit
+
+      - name: Run the specs
+        working-directory: frontend
+        env:
+          E2E_BASE_URL: http://localhost:8000
+          E2E_GIT_SHA: ${{ github.sha }}
+        run: npm run e2e
+
+      # A trace shows what the browser saw; this shows why the server said it.
+      - name: Server log
+        if: failure()
+        run: docker logs darts-e2e
+
+      # One trace.zip per failed spec. Download it from the run's summary page
+      # and open it with `npx playwright show-trace trace.zip`.
+      - name: Upload traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: frontend/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
   shell:
     name: shell
     runs-on: ubuntu-latest

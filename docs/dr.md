@@ -220,7 +220,8 @@ after the mistake. The database you replaced is kept as
 **Verified against a stand-in Linux host over SSH, not on the Pi.** The stand-in
 is the aarch64 Ubuntu 24.04 VM from #29 and #30, running this branch deployed as
 `addd005`, and reached from the Mac through colima's forward of port 8000. The
-drill on the Pi itself is part of #32's device pass.
+drill on the Pi itself is part of #32's device pass
+([ops.md → B10](ops.md#b10-restore-from-a-mac-copy-32s-restore-criterion-and-31s-drill-on-the-pi)).
 
 Recorded 2026-09-30, times UTC. An earlier run the same day, on `main` as
 `7b571ce` before automatic backups existed, passed the same way.

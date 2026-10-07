@@ -322,8 +322,8 @@ and `stop_grace_period` may be too short.
 ```
 docker compose -f deploy/compose.yaml up -d
 docker inspect -f '{{.RestartCount}}' darts
-# kill the server process inside the container
-docker compose -f deploy/compose.yaml exec -u 0 darts kill -9 1
+# kill the server process from the host
+kill -9 "$(docker inspect -f '{{.State.Pid}}' darts)"
 sleep 15
 docker inspect -f '{{.State.Status}} {{.RestartCount}}' darts
 ```
@@ -331,7 +331,14 @@ docker inspect -f '{{.State.Status}} {{.RestartCount}}' darts
 **Expect:** `running` with `RestartCount` incremented, and
 `curl localhost:8000/api/healthz` answering again.
 
-> **`docker kill` does not do this.** #28's criterion names `docker kill`, but
+> **Kill it from the host.** The server runs as uid 1000 on the host too, so
+> `pi` can kill it without `sudo`. This step used to read
+> `docker compose exec -u 0 darts kill -9 1`, which does nothing: the image has
+> no `kill` binary, and even the shell's builtin cannot SIGKILL PID 1 from
+> inside its own PID namespace (the kernel ignores it). Found and corrected on
+> the Pi in #32's device pass.
+>
+> **`docker kill` does not do this either.** #28's criterion names `docker kill`, but
 > Docker Engine records an explicit `docker kill` as a *manual* stop and does
 > not apply the restart policy to it — verified on Engine 29.5.2 with both
 > `unless-stopped` and `always`. Killing the process *inside* the container is
@@ -374,7 +381,8 @@ hostname -I
 Open `http://<that-address>:8000/` on the iPhone, on the same LAN.
 
 **Expect:** the app loads and a leg can be scored end to end. This overlaps
-#32's device QA pass and is signed off there.
+#32's device QA pass and is signed off there
+([ops.md → Device checklist](ops.md#device-checklist-v1-sign-off), B4).
 
 ## The broken-build rollback drill
 

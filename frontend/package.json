@@ -10,6 +10,7 @@
     "lint": "eslint . && prettier --check .",
     "typecheck": "tsc -b --force",
     "test": "vitest run",
+    "e2e": "playwright test",
     "gen:api": "node scripts/gen-api.mjs",
     "gen:api:check": "node scripts/gen-api.mjs --check"
   },
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
