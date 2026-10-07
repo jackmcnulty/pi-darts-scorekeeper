@@ -1206,6 +1206,20 @@ apply, and it cannot. The leg stepper stays, because every game is played over
 legs. Both x01 rules survive a trip through cricket and back, so switching game
 type is never destructive.
 
+#### The defaults are the household's rules (#67)
+
+`/setup` opens on 501, straight in, **straight out**, **one leg** to win,
+alternating. #4's mockup opened on double out and first to three, the pub
+defaults. #32's device pass found that the household plays straight out over
+one leg, so nearly every match started with three corrective taps. The
+defaults live in one place, `INITIAL_STATE` in `setup/config.ts`. In rule,
+out rule and leg count are shared across games, so one start state covers all
+six and nothing is per game. These are defaults only: every rule and leg
+count is still on screen. Remembering the last match's rules is out of
+scope. At one leg, the Alternate, Loser starts and Winner starts chips all open
+leg 1 with Team A. They stay visible anyway, for the reason given under #59
+below.
+
 #### Who starts each leg is one flat choice (#59)
 
 `GameConfig` carries `start_rule` and `fixed_team`, and the engine implements
@@ -1923,6 +1937,15 @@ the re-render after it, as a person waits to see a dart appear. And
 `lanLatency` holds every dart and undo for 150 ms, so every run exercises that
 window instead of only an unlucky one. Reproduced before the fix: with the
 latency on, the old helper failed exactly as CI had.
+
+**`startMatch` sets every rule a spec depends on.** It first counted down
+from three legs and never touched the out rule, so x01's double-out
+best-of-3, and its scripted bust on 40, rested on #23's defaults without
+saying so. #67's straight-out, one-leg defaults would have broken it twice.
+The helper now steps the leg count up or down from whatever the screen opens
+on, still asserting the result, and takes an optional `outRule` by the
+radio's accessible name. x01.spec passes `'Double out'`. Cricket asks for one
+leg and needs no rule.
 
 **Service workers are blocked** (`serviceWorkers: 'block'`). On the phone the
 worker never registers, because the Pi is plain HTTP (#71), so this is the closer

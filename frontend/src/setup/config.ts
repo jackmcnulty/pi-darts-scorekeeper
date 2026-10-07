@@ -198,9 +198,14 @@ export const MAX_LEGS = 5
 export const INITIAL_STATE: SetupState = {
   game: '501',
   inRule: 'straight',
-  outRule: 'double',
-  // #4's mockup opens this stepper on 3, and first-to-three is the pub default.
-  legsToWin: 3,
+  // Straight out and one leg are how the household plays, found on #32's
+  // device pass (#67). #4's mockup opened on double out and first to three,
+  // the pub defaults, which meant three taps before nearly every match. Both
+  // are defaults only: every rule and leg count is still a tap away, and the
+  // shared `inRule`/`outRule`/`legsToWin` make one start state right for all
+  // six games, so nothing here is per game.
+  outRule: 'straight',
+  legsToWin: 1,
   // What every match sent before #59, and what the server defaults to.
   starter: 'alternate',
   assignments: [],

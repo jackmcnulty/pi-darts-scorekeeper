@@ -79,7 +79,13 @@ test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow'
   await lanLatency(page, 150)
   await addPlayer(page, AVA)
   await addPlayer(page, BEN)
-  await startMatch(page, { game: '501', players: [AVA, BEN], legsToWin: 2 })
+  // Double out by name, not by default: the leg-1 bust below only exists under it.
+  await startMatch(page, {
+    game: '501',
+    players: [AVA, BEN],
+    legsToWin: 2,
+    outRule: 'Double out',
+  })
   await expect(page.getByText('501 · Leg 1 · Best of 3')).toBeVisible()
 
   // ---- Leg 1 ----

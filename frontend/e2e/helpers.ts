@@ -23,21 +23,35 @@ export async function addPlayer(page: Page, name: string): Promise<void> {
  * Start a one-against-one match on /setup and return its id.
  *
  * `game` is the name of the game button ("501", "Cut-throat cricket").
- * Setup opens at three legs to win, so `legsToWin` is reached by tapping
- * Decrease, and asserted rather than assumed.
+ * `outRule` is the Out rule radio's name ("Double out") and is x01 only; left
+ * out, the match plays whatever /setup opens on.
+ *
+ * The leg count is stepped from wherever the screen opens, up or down, and
+ * asserted rather than assumed. The first version only counted down from
+ * three and never set the out rule, so x01.spec quietly depended on the old
+ * double-out, first-to-three defaults. #67 changed them to straight out and one
+ * leg, and the spec's scripted bust only exists under double out. A spec
+ * whose figures depend on a rule has to say so here.
  */
 export async function startMatch(
   page: Page,
-  options: { game: string; players: [string, string]; legsToWin: number },
+  options: { game: string; players: [string, string]; legsToWin: number; outRule?: string },
 ): Promise<number> {
   await page.goto('/setup')
   await page.getByRole('button', { name: options.game, exact: true }).click()
+  if (options.outRule !== undefined) {
+    const outRule = page.getByRole('radiogroup', { name: 'Out rule' })
+    await outRule.getByRole('radio', { name: options.outRule, exact: true }).click()
+    await expect(outRule.getByRole('radio', { name: options.outRule, exact: true })).toBeChecked()
+  }
   for (const name of options.players) {
     await page.getByRole('button', { name: new RegExp(`^${name},`) }).click()
   }
   const legs = page.getByRole('region', { name: 'Rules' }).getByRole('status')
-  for (let shown = Number(await legs.textContent()); shown > options.legsToWin; shown--) {
-    await page.getByRole('button', { name: 'Decrease Legs to win' }).click()
+  const shown = Number(await legs.textContent())
+  const direction = shown < options.legsToWin ? 'Increase' : 'Decrease'
+  for (let step = 0; step < Math.abs(options.legsToWin - shown); step++) {
+    await page.getByRole('button', { name: `${direction} Legs to win` }).click()
   }
   await expect(legs).toHaveText(String(options.legsToWin))
   await page.getByRole('button', { name: 'Start match' }).click()
