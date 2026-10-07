@@ -66,3 +66,10 @@ files = ["backend"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--strict-markers"
+# `perf` tests assert a wall-clock budget, so they mean something only without
+# coverage, which slows the code under test about threefold (#46). CI's coverage
+# step deselects them and a separate step runs them uninstrumented. A plain
+# `uv run pytest` still runs them, which is what a developer's machine is for.
+markers = [
+    "perf: asserts a wall-clock budget; run without coverage (#46)",
+]
