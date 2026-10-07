@@ -262,16 +262,37 @@ def test_halving_ladder_finishes_are_preferred(remaining: int, expected_finish: 
     assert suggest(remaining, 3, Rule.DOUBLE)[0][-1].label == expected_finish
 
 
-def test_a_ladder_finish_outranks_an_awkward_one() -> None:
-    """Same length, same setup: D16 beats D13 on the ranking key."""
+def test_a_finish_that_survives_misses_outranks_an_odd_one() -> None:
+    """Same length, free setups: D16 halves four times, D13 not at all."""
     ladder = (Throw(6, 1), D16)
     awkward = (Throw(12, 1), Throw(13, 2))
     assert rank_key(ladder) < rank_key(awkward)
 
 
+def test_finishing_doubles_rank_by_what_a_miss_leaves() -> None:
+    """D16 survives four misses, D20 two, D18 one, D15 none. D4 and D2 are the
+    bottom of the ladder, so each sits behind the doubles that halve as often."""
+    finishes = ["D16", "D20", "D4", "D18", "D2", "D15"]
+    keys = [rank_key((Throw(1, 1), Throw.parse(label))) for label in finishes]
+    assert keys == sorted(keys)
+    assert len(set(keys)) == len(keys)
+
+
 def test_t20_setups_outrank_the_bull() -> None:
     assert rank_key((T20, D20)) < rank_key((BULL, Throw(15, 2)))
     assert rank_key((T19, D20)) < rank_key((BULL, Throw(15, 2)))
+
+
+def test_a_t20_setup_cannot_buy_a_d2_finish() -> None:
+    """#40's symptom B: setup and finish are weighed together, not in turn."""
+    assert rank_key((T20, Throw(16, 3), Throw(8, 2))) < rank_key((T20, T20, Throw(2, 2)))
+    assert suggest(124, 3, Rule.DOUBLE)[0] == (T20, Throw(16, 3), Throw(8, 2))
+
+
+def test_a_d16_finish_cannot_buy_a_low_triple_setup() -> None:
+    """A single is the biggest target, so 19 D20 beats T9 D16 for 59."""
+    assert rank_key((Throw(19, 1), D20)) < rank_key((Throw(9, 3), D16))
+    assert suggest(59, 3, Rule.DOUBLE)[0] == (Throw(19, 1), D20)
 
 
 def test_a_forgiving_first_dart_is_preferred() -> None:
@@ -283,14 +304,115 @@ def test_a_forgiving_first_dart_is_preferred() -> None:
     assert rank_key(on_20) < rank_key(on_19) < rank_key(on_1)
 
 
+def test_the_triple_leads_the_single_on_the_same_number() -> None:
+    """Throw the hard dart while two remain to repair a miss: T20 20 D20, not 20 T20 D20."""
+    assert suggest(120, 3, Rule.DOUBLE)[0] == (T20, Throw(20, 1), D20)
+
+
 def test_the_bull_is_the_least_forgiving_first_dart() -> None:
-    """Segment 25 is the highest number on the board and the smallest target."""
+    """Segment 25 is the highest number on the board and the smallest target.
+
+    A bull setup now loses on awkwardness before the first dart is weighed, so
+    the first-dart rule only decides between paths that both need the bull.
+    """
     assert rank_key((Throw(1, 1), D20)) < rank_key((BULL, D20))
+    assert rank_key((Throw(17, 3), BULL, D20)) < rank_key((BULL, Throw(17, 3), D20))
 
 
 def test_101_leads_with_a_triple_not_the_bull() -> None:
     """T17 BULL is the standard two-dart 101, and it leads on the triple."""
     assert suggest(101, 3, Rule.DOUBLE)[0] == (Throw(17, 3), BULL)
+
+
+def test_a_straight_out_finishes_on_the_single() -> None:
+    """Any dart finishes a straight out, and a single is the biggest target."""
+    assert suggest(16, 1, Rule.STRAIGHT)[0] == (Throw(16, 1),)
+    assert suggest(64, 2, Rule.STRAIGHT)[0] == (T20, Throw(4, 1))
+
+
+#: The expected top picks Jack signed off for #40, double out with three darts.
+#:
+#: Checked against the darts501.com checkout chart (darts501.com/Check.html,
+#: read 2026-10-07; it says "treble", this repo says triple). Seven rows match
+#: the chart or the ticket. Two differ on purpose, because the ranking prefers
+#: leading on T20 and finishing on a double that survives more misses:
+#: 121 (chart T17 T10 D20) and 128 (chart T18 T14 D16, ticket T20 T12 D16).
+#: The chart stops at 60, so 41 is the ticket's pick. This table is the test,
+#: not the chart: retune `checkout_gen`, then update it here.
+SIGNED_OFF_PICKS = {
+    41: "9 D16",
+    61: "T15 D8",
+    64: "T16 D8",
+    90: "T20 D15",
+    121: "T20 T15 D8",
+    124: "T20 T16 D8",
+    128: "T20 T12 D16",
+    141: "T20 T19 D12",
+    150: "T20 T18 D18",
+}
+
+
+@pytest.mark.parametrize(("remaining", "expected"), sorted(SIGNED_OFF_PICKS.items()))
+def test_standard_checkouts_match_the_signed_off_picks(remaining: int, expected: str) -> None:
+    best = suggest(remaining, 3, Rule.DOUBLE)[0]
+    assert " ".join(t.label for t in best) == expected
+
+
+def _has_bull_setup(path: tuple[Throw, ...]) -> bool:
+    return any(t.segment == BULL.segment for t in path[:-1])
+
+
+@pytest.mark.parametrize("out_rule", list(Rule))
+def test_no_bull_setup_where_a_bull_free_path_of_the_same_length_exists(
+    out_rule: Rule,
+) -> None:
+    """#40's symptom A, checked on every entry rather than the five it listed.
+
+    For each `(remaining, darts_left)`, no stored path that sets up on the bull
+    may outrank a bull-free path of the same length — and the top pick may set
+    up on the bull only if no bull-free path of its length exists at all.
+    """
+    paths_by_total = checkout_gen._paths_by_total(out_rule)
+    bull_free = {
+        key for key, paths in paths_by_total.items() if not all(map(_has_bull_setup, paths))
+    }
+
+    for (rule, _, remaining), labels in CHECKOUTS.items():
+        if rule != out_rule.value:
+            continue
+        ranked = [tuple(Throw.parse(label) for label in path) for path in labels]
+        if _has_bull_setup(ranked[0]):
+            assert (remaining, len(ranked[0])) not in bull_free, (remaining, labels)
+        for i, earlier in enumerate(ranked):
+            for later in ranked[i + 1 :]:
+                if len(earlier) == len(later) and _has_bull_setup(earlier):
+                    assert _has_bull_setup(later), (remaining, labels)
+
+
+def test_awkward_setups_lose_to_any_path_without_them() -> None:
+    """Over every two- and three-dart double-out path: a bull setup ranks below
+    every path without one, and a double setup below every path with neither.
+
+    This is what lets `rank_key` fold awkwardness and cost into one sum.
+    """
+    for length in (2, 3):
+        paths = [
+            path
+            for (_, darts), group in checkout_gen._paths_by_total(Rule.DOUBLE).items()
+            if darts == length
+            for path in group
+        ]
+
+        def band(path: tuple[Throw, ...]) -> int:
+            if _has_bull_setup(path):
+                return 2
+            return 1 if any(t.multiplier == 2 for t in path[:-1]) else 0
+
+        by_band: dict[int, list[int]] = {0: [], 1: [], 2: []}
+        for path in paths:
+            by_band[band(path)].append(rank_key(path)[1])
+        assert max(by_band[0]) < min(by_band[1])
+        assert max(by_band[1]) < min(by_band[2])
 
 
 # --- suggest / is_checkable contracts --------------------------------------
