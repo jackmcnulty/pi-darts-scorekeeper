@@ -20,7 +20,7 @@
  * it scores nought by design, which is exactly what this spec must not do.
  */
 import { expect, type Page, test } from '@playwright/test'
-import { addPlayer, startMatch, visit } from './helpers.ts'
+import { addPlayer, lanLatency, startMatch, visit } from './helpers.ts'
 
 /** A team's header on the board, whose label leads with its points. */
 function points(page: Page, name: string) {
@@ -28,6 +28,7 @@ function points(page: Page, name: string) {
 }
 
 test('cut-throat cricket: points accrue to the opponent, fewest points wins', async ({ page }) => {
+  await lanLatency(page, 150)
   await addPlayer(page, 'Cal')
   await addPlayer(page, 'Dee')
   await startMatch(page, { game: 'Cut-throat cricket', players: ['Cal', 'Dee'], legsToWin: 1 })

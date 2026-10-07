@@ -38,6 +38,11 @@ export default defineConfig({
     // fails, and uploaded by CI's e2e job. Open one with
     // `npx playwright show-trace test-results/<spec>/trace.zip`.
     trace: 'retain-on-failure',
+    // No service worker. On the phone it never registers anyway -- the Pi is
+    // plain HTTP, not a secure context (#71) -- so this is the closer match to
+    // the device. And while one controls the page, `page.route` cannot see the
+    // page's requests, which `lanLatency` in e2e/helpers.ts depends on.
+    serviceWorkers: 'block',
   },
   projects: [
     {

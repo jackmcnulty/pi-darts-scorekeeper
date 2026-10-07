@@ -5,7 +5,8 @@
      * and never import from src/ -- so neither the DOM project nor the test
      * project fits, and they get their own. */
     "target": "es2023",
-    "lib": ["ES2023"],
+    "lib": ["ES2023", "DOM"],
+    /* DOM for code passed to page.evaluate, which runs in the browser. */
     "types": ["node"],
     "skipLibCheck": true,
 

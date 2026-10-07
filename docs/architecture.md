@@ -1877,6 +1877,20 @@ shipped.
 **No test hooks in the app.** Everything is found by role and accessible name,
 as the component tests already do. Nothing in `frontend/src/` changed for #32.
 
+**Every tap waits for its dart to land.** The keypad ignores taps while a
+dart is in flight (#24) without greying the keys, so a scripted click still
+"succeeds". The first CI runs on #32's PR lost darts that way on a slow runner,
+and passed on a faster one. The helper now waits for each dart's response and
+the re-render after it, as a person waits to see a dart appear. And
+`lanLatency` holds every dart and undo for 150 ms, so every run exercises that
+window instead of only an unlucky one. Reproduced before the fix: with the
+latency on, the old helper failed exactly as CI had.
+
+**Service workers are blocked** (`serviceWorkers: 'block'`). On the phone the
+worker never registers, because the Pi is plain HTTP (#71), so this is the closer
+match. And while a worker controls the page, `page.route` cannot see the page's
+requests, so the latency silently never applied.
+
 **Traces only on failure.** `trace: 'retain-on-failure'`, uploaded as the
 `playwright-traces` artifact. A trace is the run recorded step by step: each
 action, the page before and after it, network and console. Open one with

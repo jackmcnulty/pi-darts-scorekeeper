@@ -33,7 +33,7 @@
  * undone 19 were it would be 56.72.
  */
 import { expect, type Page, test } from '@playwright/test'
-import { addPlayer, startMatch, visit } from './helpers.ts'
+import { addPlayer, lanLatency, startMatch, undo, visit } from './helpers.ts'
 
 const AVA = 'Ava'
 const BEN = 'Ben'
@@ -76,6 +76,7 @@ async function expectCard(page: Page, expected: Record<string, Record<string, st
 test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow', async ({
   page,
 }) => {
+  await lanLatency(page, 150)
   await addPlayer(page, AVA)
   await addPlayer(page, BEN)
   await startMatch(page, { game: '501', players: [AVA, BEN], legsToWin: 2 })
@@ -110,7 +111,7 @@ test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow'
     await visit(page, '19')
     await expect(tile(page, AVA)).toHaveAccessibleName(/^Ava, 21 remaining/)
     await expect(page.getByLabel('Dart 1, 19')).toBeVisible()
-    await page.getByRole('button', { name: 'UNDO' }).click()
+    await undo(page)
     await expect(tile(page, AVA)).toHaveAccessibleName(/^Ava, 40 remaining/)
     // The 19 is gone. The visit strip goes back to showing the last completed
     // visit (Ben's) until the next dart, which is #24's design, not a leftover.
