@@ -151,8 +151,8 @@ test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow'
   // from the match-stats query the leg 1 sheet already fetched, which stays
   // fresh for STALE_TIME_MS (5 s) and is not invalidated by a dart -- so a
   // deciding leg thrown in under five seconds, as this one is, shows leg 1's
-  // figures. No person throws a leg that fast; it is reported in the #32 PR
-  // as a finding rather than worked around here.
+  // figures. No person throws a leg that fast. Filed as #72, whose fix should
+  // add the assertions: Ava 57.8 over 52 darts, Ben 45.0 over 54.
 
   // ---- The stats screens ----
   await page.goto('/stats')

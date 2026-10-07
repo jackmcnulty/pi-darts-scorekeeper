@@ -9,6 +9,12 @@ works is in [deploy.md](deploy.md), [durability.md](durability.md) and
 starting `scripts/` run on the Mac from the repository. Everything else runs
 over `ssh pi@darts.local`.
 
+**If your Pi user is not `pi`**, read every `pi@darts.local` here and in the
+linked docs as your user, and bootstrap with
+`sudo BOOTSTRAP_USER=<you> scripts/bootstrap-pi.sh`. That user **must be uid
+1000** (`id -u`), because uid 1000 owns the data and runs the container. The
+first user Raspberry Pi Imager creates always is.
+
 > **The one rule.** Anything that opens the database on the Pi runs **inside
 > the image, as uid 1000**: `docker run --rm -v /var/lib/darts:/var/lib/darts
 > --entrypoint <tool> darts:latest …`. Never `sudo sqlite3`, never as root.
@@ -191,7 +197,7 @@ not on the device. Expect them, and record what the phone actually does.
   (`frontend/src/play/wakeLock.ts`). **A4 is expected to fail as built.** The
   same rule means #21's service worker never registers on the phone, so there
   is no offline shell either. Fixing it means HTTPS on the LAN with a
-  certificate the iPhone trusts, which is new work, not #32's.
+  certificate the iPhone trusts: [#71](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/71).
 - **Landscape has no layout.** The manifest asks for portrait, but iOS ignores
   that for home-screen apps. At 874×402 in WebKit, 5 of the 22 keypad keys are
   fully on screen and the rest are clipped at the 56 px touch floor, by #24's
@@ -317,8 +323,9 @@ scripts/deploy.sh --host pi@darts.local
 ```
 
 **Pass:** exit 0, and `curl -s http://darts.local:8000/api/healthz` shows
-`healthy`, `"detail":"created a new database"` (correct: it is new), and
-`git_sha` = `git rev-parse --short HEAD`. Note how long it took: the image
+`healthy`, `"detail":null`, and `git_sha` = `git rev-parse --short HEAD`.
+`null` rather than "created a new database" because `deploy.sh` migrates
+before it starts the app, and migrating creates the file. Note how long it took: the image
 transfer over the LAN to the SD card has never been timed
 ([deploy.md → What this drill does not cover](deploy.md#what-this-drill-does-not-cover)).
 

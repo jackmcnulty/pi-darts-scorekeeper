@@ -1893,4 +1893,4 @@ within five seconds of the leg-1 sheet therefore reuses leg 1's numbers. No
 person throws that fast; on the phone the cache is stale by then and refetches
 on mount, which at most flashes the old figures. Spec 1 asserts the sheet's
 winner and leg tally and not its averages, and says why. Not fixed here: #32 is
-not a feature ticket.
+not a feature ticket. Filed as #72, whose fix should add those assertions.
