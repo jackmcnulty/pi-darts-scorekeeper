@@ -20,10 +20,16 @@ class TeamWrite(BaseModel):
     name: str | None = None
 
 
+# One team is a match (#68): practice, with nobody to beat. The floor was two
+# until #68. Nothing in the engine needs a second team -- see
+# `tests/engine/test_one_team.py` -- so the only rule that still assumes one is
+# `fixed_team`, and `validate_composition` refuses "team 1 starts" with one team
+# the way it refuses any other index that is not there. A comment rather than a
+# docstring, which would be published as the schema's description.
 class MatchWrite(BaseModel):
     model_config = ConfigDict(extra="forbid")
     config: GameConfig
-    teams: Annotated[list[TeamWrite], Field(min_length=2)]
+    teams: Annotated[list[TeamWrite], Field(min_length=1)]
 
     @field_validator("teams")
     @classmethod

@@ -18,12 +18,13 @@
  * development-time run against a live server both exist.
  */
 import { describe, expect, it } from 'vitest'
-import { leg, matchState, soloTeams, visit, DAD, JACK } from './statefixture'
+import { leg, matchState, practiceTeams, soloTeams, visit, DAD, JACK } from './statefixture'
 import {
   checkoutDarts,
   finishingVisit,
   legLines,
   matchLines,
+  outcomeLine,
   playerLineLabel,
   sheetDue,
   sheetKey,
@@ -345,5 +346,25 @@ describe('playerLineLabel', () => {
 describe('soloTeams', () => {
   it('is the fixture both suites share', () => {
     expect(soloTeams().map((team) => team.id)).toEqual([1, 2])
+  })
+})
+
+describe('a practice match (#68)', () => {
+  const finished = () =>
+    matchState({ teams: practiceTeams(), legsWon: [2], winner: 1, winnerTeamId: 1, thrower: null })
+
+  it('is finished, never won, for the leg and the match', () => {
+    expect(outcomeLine(finished(), 1, 'match')).toBe('Jack finished the match')
+    expect(outcomeLine(finished(), 1, 'leg')).toBe('Jack finished the leg')
+    // Two teams still win.
+    expect(outcomeLine(matchState({ winner: 2 }), 2, 'match')).toBe('Dad won the match')
+  })
+
+  it('marks nobody as the winner in the tally', () => {
+    expect(tally(finished())).toEqual([{ teamId: 1, name: 'Jack', legsWon: 2, isWinner: false }])
+  })
+
+  it('still shows the match sheet when the last leg is finished', () => {
+    expect(sheetDue(finished())?.kind).toBe('match')
   })
 })

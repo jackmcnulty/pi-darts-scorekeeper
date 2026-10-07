@@ -69,6 +69,13 @@ Composite foreign keys prevent joining entities from different matches. Historic
 players are archived, not deleted. Team membership and member order belong to a
 specific match; later matches create new team rows.
 
+A match usually has two or more teams. A **single-sided** match has exactly one
+(#68): practice, with nobody to beat. It is not a column — it is the team count,
+derived where it matters (`views.sql`), so no migration carries it and no row can
+disagree with its own teams. Do not confuse it with `is_solo`, which is about a
+team's *members*: every 1v1 has two `is_solo` teams and is not single-sided, and
+a pair practising together is single-sided with no `is_solo` team.
+
 Raw darts, visit facts and cricket effects/events are the recorded history.
 `leg_team_state` and `cricket_leg_state` are disposable replay caches. No source
 table references a cache. Undo hard-deletes a dart and cascades its effects/events;
@@ -194,7 +201,7 @@ screen names the clash rather than refusing to add a real person.
 | `created_at` | TEXT | UTC creation timestamp, default now; match-level stats date filter. |
 | `completed_at` | TEXT? | UTC completion time. |
 | `abandoned_at` | TEXT? | UTC abandonment time; requires no winner or completion. |
-| `winner_team_id` | INTEGER? FK | Winning team in this match; NULL until won. |
+| `winner_team_id` | INTEGER? FK | Winning team in this match; NULL until won. In a single-sided match, the team that finished it, which is never a win. |
 
 The promoted config's x01/cricket field combinations are checked. JSON/promoted
 agreement is #14's write-time validation. Deleting a match deletes its teams and
@@ -208,7 +215,7 @@ legs, cascading through visits, darts, cricket records and caches.
 | `match_id` | INTEGER FK | Owning match; CASCADE. |
 | `team_index` | INTEGER | Nonnegative team rotation order, unique within the match. |
 | `name` | TEXT? | Optional team display label. |
-| `is_solo` | INTEGER | 1 for a team of one, otherwise 0. |
+| `is_solo` | INTEGER | 1 for a team of one, otherwise 0. About members, not about a single-sided match. |
 
 `(id, match_id)` is also unique for composite ownership FKs. Referenced active or
 historical teams are not individually deleted; delete their match instead.
@@ -231,7 +238,7 @@ Primary key `(team_id, player_id)` prevents duplicate membership in a team.
 | `match_id` | INTEGER FK | Owning match; CASCADE. |
 | `leg_index` | INTEGER | Nonnegative leg order, unique per match. |
 | `starting_team_id` | INTEGER FK | Starting team, constrained to this match. |
-| `winner_team_id` | INTEGER? FK | Winning team, constrained to this match; NULL while active. |
+| `winner_team_id` | INTEGER? FK | Winning team, constrained to this match; NULL while active. In a single-sided match, the team that finished the leg, which is never a win. |
 | `started_at` | TEXT | UTC start timestamp, default now. |
 | `completed_at` | TEXT? | UTC completion time. |
 
@@ -392,9 +399,9 @@ with its query surface rather than tables alone. The FastAPI lifespan calls
 
 | View | Grain | Notes |
 | --- | --- | --- |
-| `v_darts` | One row per row in `darts` | Visit, leg, team, player and the whole match configuration denormalised in, plus the `cricket_dart_effects` row via a LEFT JOIN on its primary key. `score` is the raw board value (segment × multiplier), which is the x01 score only when `counted` is 1. |
+| `v_darts` | One row per row in `darts` | Visit, leg, team, player and the whole match configuration denormalised in, plus the `cricket_dart_effects` row via a LEFT JOIN on its primary key. `score` is the raw board value (segment × multiplier), which is the x01 score only when `counted` is 1. `single_sided` is 1 in a one-team match. |
 | `v_visits` | One row per row in `visits` | Adds `darts_thrown` and `total_scored`, plus the player and team that threw. A visit with no darts yet still appears, with both at 0. |
-| `v_leg_players` | One row per (leg, player eligible to throw in it) | Adds `won`, which is 1 exactly when the player's team won that leg. Read off `team_members`, so a partner who threw no darts is still credited. |
+| `v_leg_players` | One row per (leg, player eligible to throw in it) | Adds `won`, which is 1 exactly when the player's team won that leg, and `single_sided`. Read off `team_members`, so a partner who threw no darts is still credited. |
 | `v_match_players` | One row per (match, player) | The same, one level up: `won` is 1 exactly when the player's team won the match. |
 
 `total_scored` follows what `score_before`/`score_after` already mean per game
@@ -409,7 +416,10 @@ so a win cannot be inferred from `v_darts` — it is a fact about membership. `w
 is 0 whenever `winner_team_id` is NULL, which covers both an unfinished leg and
 an abandoned match (0002 makes `abandoned_at` and `winner_team_id` mutually
 exclusive), so no query needs a status test to keep abandonment out of a win
-count. Cricket point events still have no view: #19's metrics read marks from
+count. `won` is also 0 in a single-sided match (#68), whose `winner_team_id`
+only records who finished; `results.sql` leaves those rows out of "played" too,
+so a practice match is never a leg or match won or played. Its darts stay in
+`v_darts` and count toward every scoring stat. Cricket point events still have no view: #19's metrics read marks from
 `cricket_dart_effects`, which `v_darts` already carries, and points from
 `v_visits.total_scored`.
 
@@ -581,7 +591,7 @@ Ordered by `match_id`.
 | 12 | `legs_played` | Legs that exist |
 | 13 | `legs_completed` | Legs with a `completed_at` |
 | 14 | `darts_thrown` | Agrees with the row count of `darts.csv?match_id=` |
-| 15 | `winner_team_id` | Empty unless complete |
+| 15 | `winner_team_id` | Empty unless complete. In a single-sided match, the team that finished |
 | 16 | `winner_team_name` | |
 | 17 | `teams` | `Reds vs Blues` |
 | 18 | `players` | `Ana+Cal vs Ben+Dee`, in team and member order |
@@ -590,7 +600,8 @@ Ordered by `match_id`.
 parseable encoding**: #17 only strips a display name, so a player may
 legitimately be called `A+B`. A team with no name — which is every solo team — is
 labelled after its members, so a singles match reads `Ana vs Ben` rather than
-leaving two empty cells. The ids are the unambiguous form, and `darts.csv` is the
+leaving two empty cells. A single-sided match has one team, so its `teams` cell
+has no `vs`. The ids are the unambiguous form, and `darts.csv` is the
 lossless grain.
 
 ### Why the export queries live under stats/sql

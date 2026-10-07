@@ -472,6 +472,17 @@ describe('what the recent column is called', () => {
   it('falls back to a heading while the request is in flight', () => {
     expect(windowLabel(undefined)).toBe('Recent')
   })
+
+  it('counts the practice matches the window covered (#68)', () => {
+    // Their darts are in the recent figures but never in matches_played, so a
+    // heading from matches_played alone would claim fewer than it covers.
+    expect(windowLabel(playerStats({ matchesPlayed: 6, singleSidedMatches: 4 }))).toBe(
+      'Last 10 matches',
+    )
+    expect(windowLabel(playerStats({ matchesPlayed: 0, singleSidedMatches: 1 }))).toBe(
+      'Last 1 match',
+    )
+  })
 })
 
 describe('whether there is anything to show', () => {

@@ -41,6 +41,7 @@ import {
   statusLabel,
   visitLines,
 } from '../matches/history'
+import { isSingleSided, outcomeVerb } from '../matches/sides'
 import './MatchDetail.css'
 
 export function MatchDetail() {
@@ -105,6 +106,8 @@ export function MatchDetail() {
   // `game_type === 'cricket'` does not narrow anything; the literal is what
   // `visitLines` needs and reading it once here is enough.
   const game = match.data.config.game_type === 'cricket' ? 'cricket' : 'x01'
+  // "Ana finished", never "Ana won", for #68's practice match: see matches/sides.ts.
+  const verb = outcomeVerb(isSingleSided(match.data))
   const teamNames = new Map(
     match.data.teams.map(
       (team) =>
@@ -137,7 +140,7 @@ export function MatchDetail() {
             <h2 className="detail__leg-title" id={`leg-${String(leg.leg_id)}`}>
               <span>Leg {leg.leg_index + 1}</span>
               <span className="detail__leg-meta tnum">
-                {winner === undefined || winner === null ? 'Unfinished' : `${winner} won`} ·{' '}
+                {winner === undefined || winner === null ? 'Unfinished' : `${winner} ${verb}`} ·{' '}
                 {thrown} darts
               </span>
             </h2>

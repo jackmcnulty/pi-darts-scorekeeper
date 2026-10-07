@@ -26,6 +26,8 @@ import { Stepper } from '../components/Stepper'
 import { accentColour } from '../players/accents'
 import {
   buildMatch,
+  effectiveStarter,
+  emptySide,
   GAME_OPTIONS,
   INITIAL_STATE,
   isX01,
@@ -70,12 +72,14 @@ export function Setup() {
   const navigate = useNavigate()
 
   const payload = buildMatch(state)
+  const starter = effectiveStarter(state)
+  const empty = emptySide(state)
   const inProgress = resumable.data ?? null
 
   // Undefined when there is no match to start, which is the single thing the
-  // button consults: `buildMatch` returning `null` *is* #23's "at least 2
-  // teams and every team has at least 1 player", so the disabled state and
-  // the body posted cannot disagree about whether this is a match.
+  // button consults: `buildMatch` returning `null` *is* "at least 1 team and
+  // every team has at least 1 player" (#23, widened by #68), so the disabled
+  // state and the body posted cannot disagree about whether this is a match.
   const start =
     payload === null
       ? undefined
@@ -162,13 +166,17 @@ export function Setup() {
           {/* Outside the x01 block: cricket is played over legs too, and
               somebody has to throw first in each one. Chips rather than a
               segmented control because five options do not fit one row at
-              402px -- see `STARTER_OPTIONS` in setup/config.ts. */}
+              402px -- see `STARTER_OPTIONS` in setup/config.ts. In a practice
+              match the chip for the empty side is disabled rather than hidden
+              (Jack, #68): the row keeps its shape, so nothing moves when the
+              second player is tapped on. See `effectiveStarter`. */}
           <div className="setup__chips" role="group" aria-label="Who starts each leg">
             {STARTER_OPTIONS.map((option) => (
               <Chip
                 key={option.value}
                 label={option.label}
-                selected={state.starter === option.value}
+                selected={starter === option.value}
+                disabled={empty !== null && option.value === `fixed-${empty}`}
                 onClick={() => {
                   dispatch({ type: 'starter', starter: option.value })
                 }}
@@ -191,8 +199,8 @@ export function Setup() {
             Players
           </span>
           <p className="setup__hint">
-            Tap to pick sides — the first two taps make it one against one. Tap again to switch
-            teams, once more to sit out.
+            Tap to pick sides — one tap is a practice match, two make it one against one. Tap again
+            to switch teams, once more to sit out.
           </p>
 
           {players.isPending && <p className="setup__note">Reading the player list&hellip;</p>}

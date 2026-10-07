@@ -58,6 +58,7 @@ import {
 } from '../play/leg'
 import { useWakeLock } from '../play/wakeLock'
 import { bustOf, cardLabel, checkoutText, contextLine, teamCards, visitTotal } from '../play/x01'
+import { isSingleSided, outcomeVerb } from '../matches/sides'
 import { CompletionSheet } from './CompletionSheet'
 import { CricketBoard } from './CricketBoard'
 import { PlayFrame } from './PlayFrame'
@@ -140,6 +141,7 @@ export function Play() {
 
   const leg = legInPlay(match)
   const cards = teamCards(match, leg)
+  const singleSided = isSingleSided(match)
   const visit = shownVisit(leg)
   const bust = bustOf(visit)
   const playable = isPlayable(match)
@@ -194,7 +196,7 @@ export function Play() {
             active={card.active}
             average={card.average}
             legs={card.legsWon}
-            label={cardLabel(card)}
+            label={cardLabel(card, singleSided)}
           />
         ))}
       </div>
@@ -227,7 +229,9 @@ export function Play() {
 
         <div className="play__checkout">
           <span className="play__checkout-label">Checkout</span>
-          <span className="play__checkout-value tnum">{checkoutText(leg.checkout)}</span>
+          <span className="play__checkout-value tnum">
+            {checkoutText(leg.checkout, singleSided)}
+          </span>
         </div>
       </div>
 
@@ -239,8 +243,8 @@ export function Play() {
 
       {match.is_complete && (
         <p className="play__done" role="status">
-          {cards.find((card) => card.teamId === match.winner_team_id)?.name ?? 'Somebody'} won the
-          match. <Link to="/">Back to the start</Link>
+          {cards.find((card) => card.teamId === match.winner_team_id)?.name ?? 'Somebody'}{' '}
+          {outcomeVerb(singleSided)} the match. <Link to="/">Back to the start</Link>
         </p>
       )}
 

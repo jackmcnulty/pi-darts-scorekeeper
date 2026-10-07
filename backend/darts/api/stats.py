@@ -15,6 +15,14 @@ every member of that team is credited with it. Four solo matches award four wins
 where one 2v2 awards one win to two players, and no arrangement of the numbers
 makes those the same.
 
+**A single-sided match is never won, nor played; its darts count.** #68's
+practice match has one team. It never adds to `legs_won` / `matches_won` or to
+`legs_played` / `matches_played`, and a per-leg line in it is never `won` --
+with no opponent there is nothing to win. Its darts are real darts, so they feed
+every scoring metric, the leaderboard included. Both halves are Jack's call on
+#68; `views.sql` and `results.sql` are where they are enforced. A report counts
+them separately in `single_sided_matches`.
+
 **x01 metrics are always over x01 darts, cricket metrics over cricket darts.**
 `?game_type=` narrows further, but it is not what makes an average meaningful:
 a 3-dart average mixing 501 darts with cricket darts would be a number about
@@ -220,6 +228,9 @@ class PlayerStatsResponse(BaseModel):
     legs_won: int
     matches_played: int
     matches_won: int
+    #: Practice matches (#68) in scope. Never in the four tallies above; here so
+    #: a client can say how many matches a `?last_matches=` window covered.
+    single_sided_matches: int
     x01: X01Response
     cricket: CricketResponse
     segments: list[SegmentResponse]

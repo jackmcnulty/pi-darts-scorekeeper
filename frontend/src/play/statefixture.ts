@@ -32,6 +32,15 @@ export function soloTeams(): TeamResponse[] {
   return [team(1, 0, [[JACK, 'Jack']]), team(2, 1, [[DAD, 'Dad']])]
 }
 
+/**
+ * #68's practice match: one team, Jack alone. Pass `legsWon: [n]` with it --
+ * the server's `legs_won` is positional to `teams`, so one team has one entry.
+ * The two-slot leg options (`remaining`, `marks` and so on) read only slot 0.
+ */
+export function practiceTeams(): TeamResponse[] {
+  return [team(1, 0, [[JACK, 'Jack']])]
+}
+
 /** A 2v2: Jack with Ellie against Dad with Sam. */
 export function pairTeams(): TeamResponse[] {
   return [
@@ -234,7 +243,8 @@ export interface MatchStateOptions extends LegOptions {
   /** Which cricket. Ignored for an x01 match, as the server ignores it. */
   variant?: 'standard' | 'cutthroat' | 'quick'
   status?: MatchState['status']
-  legsWon?: [number, number]
+  /** Positional to `teams`: two entries for two teams, one for #68's one. */
+  legsWon?: number[]
   winner?: number | null
   /** The leg a dart goes to. Null is a won or abandoned match. */
   activeLegId?: number | null

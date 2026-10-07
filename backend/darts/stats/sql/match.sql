@@ -36,8 +36,11 @@ WITH scoped AS (
         d.counted * d.score AS scored,
         coalesce(d.cricket_counted_marks, 0)
             + coalesce(d.cricket_surplus_marks, 0) AS marks,
+        -- Never a win in a single-sided match, whose leg winner is only the
+        -- finisher (#68, see views.sql).
         CASE WHEN d.leg_winner_team_id IS NOT NULL
               AND d.leg_winner_team_id = d.team_id
+              AND d.single_sided = 0
              THEN 1 ELSE 0 END AS won
     FROM v_darts d
     WHERE TRUE  -- every dart, then whatever the caller narrowed to

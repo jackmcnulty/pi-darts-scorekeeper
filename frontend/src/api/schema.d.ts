@@ -960,6 +960,8 @@ export interface components {
       player_id: number
       /** Segments */
       segments: components['schemas']['SegmentResponse'][]
+      /** Single Sided Matches */
+      single_sided_matches: number
       x01: components['schemas']['X01Response']
     }
     /**

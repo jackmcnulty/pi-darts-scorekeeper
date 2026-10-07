@@ -14,6 +14,18 @@
 -- JOIN on a primary key. The two participation views (v_leg_players,
 -- v_match_players) are deliberately wider than any one table, because who took
 -- part in a leg is a fact about team membership rather than about a dart.
+--
+-- `single_sided` (#68) is 1 for a match with one team: practice, with nobody to
+-- beat. It is derived here from the team count rather than stored, so no
+-- migration carries it and no row can disagree with its own teams. It is *not*
+-- `is_solo`, which is older and means a team with one member -- every ordinary
+-- 1v1 has two `is_solo` teams and is not single-sided. The engine still ends a
+-- single-sided leg on the finishing dart and records the finisher in
+-- `winner_team_id`, which is what lets checkout detection and #22's verify read
+-- the same columns as ever; in a single-sided match that column means
+-- "finished", never "won". The participation views below are where that
+-- meaning is enforced: their `won` is 0 in a single-sided match, and
+-- `results.sql` leaves the match out of "played" as well.
 
 -- One row per recorded dart, with its visit, leg, team, player and the match
 -- configuration denormalised in, so a stats query needs no further joins.
@@ -64,6 +76,12 @@ SELECT
     m.created_at             AS match_created_at,
     m.completed_at           AS match_completed_at,
     m.winner_team_id         AS match_winner_team_id,
+    -- See the header. A lookup on `teams`' (match_id, team_index) key, and
+    -- only computed by a query that names it: the view is flattened, so the
+    -- leaderboard and every other dart query never pay for it.
+    NOT EXISTS (
+        SELECT 1 FROM teams o WHERE o.match_id = l.match_id AND o.id != d.team_id
+    )                        AS single_sided,
     t.team_index             AS team_index,
     t.name                   AS team_name,
     t.is_solo                AS is_solo,
@@ -138,7 +156,8 @@ GROUP BY v.id;
 --
 -- `won` is 0 for a leg still in progress and for a leg in an abandoned match,
 -- because neither has a winner_team_id -- no status test is needed to keep an
--- abandoned match out of a win count.
+-- abandoned match out of a win count. It is also 0 in a single-sided match,
+-- whose winner_team_id is only the finisher (see the header).
 CREATE VIEW v_leg_players AS
 SELECT
     l.id                AS leg_id,
@@ -155,7 +174,13 @@ SELECT
     tm.member_index     AS member_index,
     p.display_name      AS player_name,
     p.is_archived       AS player_is_archived,
+    NOT EXISTS (
+        SELECT 1 FROM teams o WHERE o.match_id = l.match_id AND o.id != t.id
+    )                   AS single_sided,
     CASE WHEN l.winner_team_id IS NOT NULL AND l.winner_team_id = t.id
+              AND EXISTS (
+                  SELECT 1 FROM teams o WHERE o.match_id = l.match_id AND o.id != t.id
+              )
          THEN 1 ELSE 0 END AS won,
     m.game_type         AS game_type,
     m.variant           AS variant,
@@ -177,6 +202,7 @@ JOIN players p ON p.id = tm.player_id;
 -- The same membership argument as v_leg_players, one level up. `won` is 0 for a
 -- match in progress and for an abandoned one: 0002 makes winner_team_id and
 -- abandoned_at mutually exclusive, so an abandoned match can never be a win.
+-- And it is 0 in a single-sided match, which is never a win either (#68).
 CREATE VIEW v_match_players AS
 SELECT
     m.id                AS match_id,
@@ -188,7 +214,13 @@ SELECT
     tm.member_index     AS member_index,
     p.display_name      AS player_name,
     p.is_archived       AS player_is_archived,
+    NOT EXISTS (
+        SELECT 1 FROM teams o WHERE o.match_id = m.id AND o.id != t.id
+    )                   AS single_sided,
     CASE WHEN m.winner_team_id IS NOT NULL AND m.winner_team_id = t.id
+              AND EXISTS (
+                  SELECT 1 FROM teams o WHERE o.match_id = m.id AND o.id != t.id
+              )
          THEN 1 ELSE 0 END AS won,
     m.game_type         AS game_type,
     m.variant           AS variant,

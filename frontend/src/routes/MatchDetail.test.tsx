@@ -350,3 +350,23 @@ describe('a multi-leg match', () => {
     expect(screen.getByText(/Dad won/)).toBeInTheDocument()
   })
 })
+
+describe('a practice match (#68)', () => {
+  it('says each leg was finished, never won', async () => {
+    const alone = match({ id: 42, bestOf: 3 })
+    serves({ ...alone, teams: alone.teams.slice(0, 1) }, [
+      leg({
+        legId: 7,
+        legIndex: 0,
+        winnerTeamId: 1,
+        visits: [visit({ scoreBefore: 40, scoreAfter: 0, labels: ['D20'] })],
+      }),
+    ])
+    renderApp('/history/42')
+
+    await waitFor(() => {
+      expect(screen.getByText(/Jack finished/)).toBeInTheDocument()
+    })
+    expect(screen.queryByText(/won/)).not.toBeInTheDocument()
+  })
+})
