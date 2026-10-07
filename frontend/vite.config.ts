@@ -1,7 +1,7 @@
-/// <reference types="vitest/config" />
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
+import { configDefaults } from 'vitest/config'
 
 const swEntry = fileURLToPath(new URL('./src/sw/sw.ts', import.meta.url))
 
@@ -43,6 +43,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
+    // #32's Playwright specs are `*.spec.ts`, which Vitest's default include
+    // matches. They drive a browser against the built image and belong to
+    // `npm run e2e`, never to this run or its coverage.
+    exclude: [...configDefaults.exclude, 'e2e/**'],
     // Components declare their touch targets in CSS, so the cascade has to be
     // present for the computed-style assertions in components.test.tsx.
     css: true,

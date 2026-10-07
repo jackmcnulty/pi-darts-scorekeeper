@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright (#32): traces and screenshots from failed E2E specs, and the
+# HTML report. CI uploads test-results/ as an artifact instead.
+test-results
+playwright-report
