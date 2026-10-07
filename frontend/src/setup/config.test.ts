@@ -156,12 +156,12 @@ describe('the other controls', () => {
     expect(reduce(INITIAL_STATE, { type: 'legsToWin', legs: 4 }).legsToWin).toBe(4)
   })
 
-  it('opens on 501, straight in, double out, first to three, alternating', () => {
+  it('opens on 501, straight in, straight out, one leg, alternating', () => {
     expect(INITIAL_STATE).toMatchObject({
       game: '501',
       inRule: 'straight',
-      outRule: 'double',
-      legsToWin: 3,
+      outRule: 'straight',
+      legsToWin: 1,
       starter: 'alternate',
       assignments: [],
     })
@@ -207,8 +207,8 @@ describe('buildMatch builds what the server wants', () => {
         game_type: 'x01',
         start_score: 501,
         in_rule: 'straight',
-        out_rule: 'double',
-        best_of: 5,
+        out_rule: 'straight',
+        best_of: 1,
         start_rule: 'alternate',
         fixed_team: 0,
       },
@@ -223,7 +223,7 @@ describe('buildMatch builds what the server wants', () => {
       config: {
         game_type: 'cricket',
         variant: 'quick',
-        best_of: 5,
+        best_of: 1,
         start_rule: 'alternate',
         fixed_team: 0,
       },

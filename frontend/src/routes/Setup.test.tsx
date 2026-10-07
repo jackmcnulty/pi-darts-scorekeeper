@@ -270,14 +270,15 @@ describe('building a match', () => {
     await waitFor(() => {
       expect(screen.getByRole('group', { name: 'This visit' })).toBeInTheDocument()
     })
+    // No rule taps: the defaults are the household's rules (#67).
     expect(posted).toEqual([
       {
         config: {
           game_type: 'x01',
           start_score: 501,
           in_rule: 'straight',
-          out_rule: 'double',
-          best_of: 5,
+          out_rule: 'straight',
+          best_of: 1,
           start_rule: 'alternate',
           fixed_team: 0,
         },
@@ -310,7 +311,9 @@ describe('building a match', () => {
     await user.click(screen.getByRole('button', { name: 'Quick cricket' }))
     await user.click(row('Jack'))
     await user.click(row('Dad'))
-    await user.click(screen.getByRole('button', { name: 'Decrease Legs to win' }))
+    // Up from the default of one, so the leg count sent is a choice and not
+    // the default (#67).
+    await user.click(screen.getByRole('button', { name: 'Increase Legs to win' }))
     await user.click(screen.getByRole('button', { name: 'Start match' }))
 
     await waitFor(() => {
@@ -334,7 +337,10 @@ describe('building a match', () => {
     const inRule = screen.getByRole('radiogroup', { name: 'In rule' })
     await user.click(within(inRule).getByRole('radio', { name: 'Double in' }))
     const outRule = screen.getByRole('radiogroup', { name: 'Out rule' })
-    await user.click(within(outRule).getByRole('radio', { name: 'Straight out' }))
+    // Away from both defaults, so every field below was set by a tap (#67).
+    await user.click(within(outRule).getByRole('radio', { name: 'Double out' }))
+    await user.click(screen.getByRole('button', { name: 'Increase Legs to win' }))
+    await user.click(screen.getByRole('button', { name: 'Increase Legs to win' }))
     await user.click(screen.getByRole('button', { name: 'Increase Legs to win' }))
 
     await user.click(row('Jack'))
@@ -348,7 +354,7 @@ describe('building a match', () => {
       game_type: 'x01',
       start_score: 701,
       in_rule: 'double',
-      out_rule: 'straight',
+      out_rule: 'double',
       best_of: 7,
       start_rule: 'alternate',
       fixed_team: 0,
@@ -400,7 +406,7 @@ describe('building a match', () => {
       config: {
         game_type: 'cricket',
         variant: 'cutthroat',
-        best_of: 5,
+        best_of: 1,
         start_rule: 'fixed',
         fixed_team: 1,
       },
@@ -447,6 +453,77 @@ describe('building a match', () => {
     await user.click(row('Jack'))
     expect(row('Jack')).toHaveAccessibleName('Jack, not playing')
   })
+})
+
+describe('the defaults (#67)', () => {
+  /** The Legs to win stepper's value: the one status in the Rules section. */
+  function legsToWin() {
+    return within(screen.getByRole('region', { name: 'Rules' })).getByRole('status')
+  }
+
+  for (const score of [301, 501, 701]) {
+    it(`opens ${String(score)} on straight in, straight out, one leg, and sends it untouched`, async () => {
+      const user = userEvent.setup()
+      renderApp('/setup')
+      await rosterList()
+
+      await user.click(screen.getByRole('button', { name: String(score) }))
+
+      const inRule = screen.getByRole('radiogroup', { name: 'In rule' })
+      const outRule = screen.getByRole('radiogroup', { name: 'Out rule' })
+      expect(within(inRule).getByRole('radio', { name: 'Straight in' })).toBeChecked()
+      expect(within(outRule).getByRole('radio', { name: 'Straight out' })).toBeChecked()
+      expect(legsToWin()).toHaveTextContent(/^1$/)
+      // One is the floor, so the only way off the default is up.
+      expect(screen.getByRole('button', { name: 'Decrease Legs to win' })).toBeDisabled()
+
+      await user.click(row('Jack'))
+      await user.click(row('Dad'))
+      await user.click(screen.getByRole('button', { name: 'Start match' }))
+
+      await waitFor(() => {
+        expect(posted).toHaveLength(1)
+      })
+      expect(posted[0]?.config).toEqual({
+        game_type: 'x01',
+        start_score: score,
+        in_rule: 'straight',
+        out_rule: 'straight',
+        best_of: 1,
+        start_rule: 'alternate',
+        fixed_team: 0,
+      })
+    })
+  }
+
+  for (const [game, variant] of [
+    ['Cricket', 'standard'],
+    ['Cut-throat cricket', 'cutthroat'],
+    ['Quick cricket', 'quick'],
+  ] as const) {
+    it(`opens ${game} on one leg to win, and sends it untouched`, async () => {
+      const user = userEvent.setup()
+      renderApp('/setup')
+      await rosterList()
+
+      await user.click(screen.getByRole('button', { name: game }))
+      expect(legsToWin()).toHaveTextContent(/^1$/)
+      await user.click(row('Jack'))
+      await user.click(row('Dad'))
+      await user.click(screen.getByRole('button', { name: 'Start match' }))
+
+      await waitFor(() => {
+        expect(posted).toHaveLength(1)
+      })
+      expect(posted[0]?.config).toEqual({
+        game_type: 'cricket',
+        variant,
+        best_of: 1,
+        start_rule: 'alternate',
+        fixed_team: 0,
+      })
+    })
+  }
 })
 
 describe('a match already in progress', () => {
