@@ -32,6 +32,7 @@ import {
   MAX_LEGS,
   MIN_LEGS,
   reduce,
+  STARTER_OPTIONS,
   teamOf,
   type Rule,
   type TeamId,
@@ -158,6 +159,22 @@ export function Setup() {
               />
             </>
           )}
+          {/* Outside the x01 block: cricket is played over legs too, and
+              somebody has to throw first in each one. Chips rather than a
+              segmented control because five options do not fit one row at
+              402px -- see `STARTER_OPTIONS` in setup/config.ts. */}
+          <div className="setup__chips" role="group" aria-label="Who starts each leg">
+            {STARTER_OPTIONS.map((option) => (
+              <Chip
+                key={option.value}
+                label={option.label}
+                selected={state.starter === option.value}
+                onClick={() => {
+                  dispatch({ type: 'starter', starter: option.value })
+                }}
+              />
+            ))}
+          </div>
           <Stepper
             label="Legs to win"
             value={state.legsToWin}

@@ -4,11 +4,15 @@
  * #23 asks that "the payload posted validates server-side on the first try for
  * every reachable UI configuration", which a handful of worked examples cannot
  * discharge -- it is a statement about all of them. So the second half of this
- * file enumerates every state the screen can reach (six games, both in-rules,
- * both out-rules, every leg count, and a set of team shapes covering solo,
- * even and uneven) and checks each built body against the rules the server
- * actually enforces, transcribed from `repo/config.py` and
- * `api/matches.py::validate_composition`.
+ * file enumerates every state the screen can reach (six games, every in-rule
+ * and out-rule the reducer accepts, every leg count, all five starters, and a
+ * set of team shapes covering solo, even and uneven) and checks each built
+ * body against the rules the server actually enforces, transcribed from
+ * `repo/config.py` and `api/matches.py::validate_composition`.
+ *
+ * The starter axis is whole because the reducer makes it small: `starter` is
+ * one field with five values and no remembered team behind it (#59), so the
+ * five are all the starter states there are, under every other choice.
  *
  * That mirrors `tests/repo/test_config.py`, which offers the same kind of grid
  * to `GameConfig` and to a raw INSERT and asserts the two agree. It is not the
@@ -33,11 +37,13 @@ import {
   membersOf,
   MIN_LEGS,
   reduce,
+  STARTER_OPTIONS,
   teamOf,
   type GameId,
   type MatchWrite,
   type Rule,
   type SetupState,
+  type StarterId,
   type TeamId,
 } from './config'
 
@@ -150,14 +156,23 @@ describe('the other controls', () => {
     expect(reduce(INITIAL_STATE, { type: 'legsToWin', legs: 4 }).legsToWin).toBe(4)
   })
 
-  it('opens on 501, straight in, double out, first to three', () => {
+  it('opens on 501, straight in, double out, first to three, alternating', () => {
     expect(INITIAL_STATE).toMatchObject({
       game: '501',
       inRule: 'straight',
       outRule: 'double',
       legsToWin: 3,
+      starter: 'alternate',
       assignments: [],
     })
+  })
+
+  it('keeps the starter across a change of game, cricket included', () => {
+    const chosen = reduce(INITIAL_STATE, { type: 'starter', starter: 'loser_starts' })
+    const there = reduce(chosen, { type: 'game', game: 'cricket-standard' })
+
+    expect(there.starter).toBe('loser_starts')
+    expect(reduce(there, { type: 'game', game: '701' }).starter).toBe('loser_starts')
   })
 
   it('reports no team for a player nobody has tapped', () => {
@@ -213,6 +228,35 @@ describe('buildMatch builds what the server wants', () => {
         fixed_team: 0,
       },
       teams: [{ player_ids: [1] }, { player_ids: [2] }],
+    })
+  })
+
+  it('sends each starter as a whole start_rule and fixed_team pair', () => {
+    const expected: Record<StarterId, { start_rule: string; fixed_team: number }> = {
+      alternate: { start_rule: 'alternate', fixed_team: 0 },
+      loser_starts: { start_rule: 'loser_starts', fixed_team: 0 },
+      winner_starts: { start_rule: 'winner_starts', fixed_team: 0 },
+      'fixed-A': { start_rule: 'fixed', fixed_team: 0 },
+      'fixed-B': { start_rule: 'fixed', fixed_team: 1 },
+    }
+    for (const option of STARTER_OPTIONS) {
+      const state = reduce(tap(INITIAL_STATE, 1, 2), { type: 'starter', starter: option.value })
+      expect(buildMatch(state)?.config).toMatchObject(expected[option.value])
+    }
+  })
+
+  it('leaves Team A first in leg 1 after Team B starts is given up', () => {
+    // `starting_team` opens leg 1 at `fixed_team` under loser_starts and
+    // winner_starts, so a Team B left over from `fixed` would be a silent
+    // change of who throws first. There is no field for it to be left in.
+    const backedOut = [
+      { type: 'starter', starter: 'fixed-B' } as const,
+      { type: 'starter', starter: 'loser_starts' } as const,
+    ].reduce(reduce, tap(INITIAL_STATE, 1, 2))
+
+    expect(buildMatch(backedOut)?.config).toMatchObject({
+      start_rule: 'loser_starts',
+      fixed_team: 0,
     })
   })
 
@@ -326,13 +370,28 @@ describe('every reachable configuration builds a body the server accepts', () =>
   const games: GameId[] = GAME_OPTIONS.map((option) => option.value)
   const legCounts = Array.from({ length: MAX_LEGS - MIN_LEGS + 1 }, (_, i) => MIN_LEGS + i)
 
+  const starters: StarterId[] = STARTER_OPTIONS.map((option) => option.value)
+
   it('covers all six games the picker offers', () => {
     expect(games).toHaveLength(6)
     expect(games.filter(isX01)).toHaveLength(3)
   })
 
+  it('covers all four start rules, and fixed for both teams', () => {
+    const pairs = starters.map((starter) => {
+      const config = buildMatch(
+        reduce(tap(INITIAL_STATE, 1, 2), { type: 'starter', starter }),
+      )?.config
+      return `${String(config?.start_rule)}/${String(config?.fixed_team)}`
+    })
+
+    expect(new Set(pairs)).toEqual(
+      new Set(['alternate/0', 'loser_starts/0', 'winner_starts/0', 'fixed/0', 'fixed/1']),
+    )
+  })
+
   for (const shape of TEAM_SHAPES) {
-    it(`accepts ${shape.name} under every game, rule and leg count`, () => {
+    it(`accepts ${shape.name} under every game, rule, leg count and starter`, () => {
       const withTeams = tap(INITIAL_STATE, ...shape.taps)
       let checked = 0
 
@@ -340,26 +399,32 @@ describe('every reachable configuration builds a body the server accepts', () =>
         for (const inRule of RULES) {
           for (const outRule of RULES) {
             for (const legs of legCounts) {
-              const state = [
-                { type: 'game', game } as const,
-                { type: 'inRule', rule: inRule } as const,
-                { type: 'outRule', rule: outRule } as const,
-                { type: 'legsToWin', legs } as const,
-              ].reduce(reduce, withTeams)
+              for (const starter of starters) {
+                const state = [
+                  { type: 'game', game } as const,
+                  { type: 'inRule', rule: inRule } as const,
+                  { type: 'outRule', rule: outRule } as const,
+                  { type: 'legsToWin', legs } as const,
+                  { type: 'starter', starter } as const,
+                ].reduce(reduce, withTeams)
 
-              const body = buildMatch(state)
-              expect(body).not.toBeNull()
-              // Narrowed by the assertion above; spelled out for the compiler.
-              if (body === null) continue
-              assertServerWouldAccept(body)
-              checked += 1
+                const body = buildMatch(state)
+                expect(body).not.toBeNull()
+                // Narrowed by the assertion above; spelled out for the compiler.
+                if (body === null) continue
+                assertServerWouldAccept(body)
+                // Not a server rule but this screen's: only "Team B starts"
+                // may put B first in leg 1 (see `STARTER_CONFIG`).
+                if (body.config.start_rule !== 'fixed') expect(body.config.fixed_team).toBe(0)
+                checked += 1
+              }
             }
           }
         }
       }
 
-      // 6 games x 3 in-rules x 3 out-rules x 5 leg counts.
-      expect(checked).toBe(270)
+      // 6 games x 3 in-rules x 3 out-rules x 5 leg counts x 5 starters.
+      expect(checked).toBe(1350)
     })
   }
 })

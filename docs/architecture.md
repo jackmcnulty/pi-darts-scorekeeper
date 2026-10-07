@@ -1141,9 +1141,9 @@ be rules somebody has to remember:
   `assignments` through untouched. It is a property of the reducer rather than
   something each screen has to be careful about.
 - **The enumeration is possible at all.** `config.test.ts` walks every
-  reachable state — 6 games × 3 in-rules × 3 out-rules × 5 leg counts × 7 team
-  shapes — and checks each body against the rules transcribed from
-  `repo/config.py` and `api/matches.py`.
+  reachable state — 6 games × 3 in-rules × 3 out-rules × 5 leg counts × 5
+  starters × 7 team shapes, 9,450 in all since #59 — and checks each body
+  against the rules transcribed from `repo/config.py` and `api/matches.py`.
 
 It is a `.ts` and not part of `Setup.tsx` because
 `react-refresh/only-export-components` fails a file exporting both a component
@@ -1206,13 +1206,45 @@ apply, and it cannot. The leg stepper stays, because every game is played over
 legs. Both x01 rules survive a trip through cricket and back, so switching game
 type is never destructive.
 
-#### The starter is hardcoded to `alternate`
+#### Who starts each leg is one flat choice (#59)
 
 `GameConfig` carries `start_rule` and `fixed_team`, and the engine implements
-all four rules in `rotation.py`. #23's scope has no starter control and neither
-did the mockup, so the screen sends `alternate` and `fixed_team: 0` — the
-values the server would have defaulted to. `loser_starts` is the common pub
-convention and is unreachable from the UI today; **#24 owns exposing it.**
+four rules in `rotation.py`. #23 hardcoded `alternate`; #59 exposes all four as
+five chips in the Rules section: **Alternate**, **Loser starts**, **Winner
+starts**, **Team A starts** and **Team B starts**. The last two are `fixed` on
+`teams[0]` and `teams[1]`. The chips show for every game, cricket included,
+because every game is played over legs.
+
+The ticket asked for "four options, and `fixed` needs a team picker". Jack
+chose the flat row over that literal shape after three candidates were
+measured at 402×781 in a real browser (not on the device):
+
+| Candidate | Height | Labels |
+|---|---|---|
+| Four-way `SegmentedControl` + Team A/B under Fixed | 74px (+66) | "Loser starts" and "Winner starts" wrap to two lines in 83px buttons |
+| Four chips + Team A/B segment under Fixed | 128px (+66) | All on one line |
+| **Five chips** | 192px | All on one line |
+
+The default (`alternate`, as before) costs no taps in every shape, and every
+other choice costs one in the flat row, including Team B.
+
+**`fixed_team` is not only read under `fixed`.** The ticket says
+`starting_team` ignores it otherwise, but `starting_team` opens leg 1 at
+`fixed_team` under `loser_starts` and `winner_starts` too, and only
+`alternate` hard-codes 0. A rule control plus a remembered team picker would
+let a stale "Team B" silently hand B the first leg after the rule moved off
+Fixed. The flat choice has one field, `starter`, with five values, so there is
+nothing to remember. Every rule except Fixed sends `fixed_team: 0`: Team A
+(whoever was tapped first) throws first in leg 1, exactly as before #59.
+
+At one leg to win, Alternate, Loser starts and Winner starts behave
+identically. The chips stay anyway, because Team B starts still changes who
+throws first, and hiding the row would hide that too.
+
+The client never computes a starter. It sends the rule, and the server opens
+every leg (`create_match` for leg 1, `services/play` thereafter) and records it
+in `legs.starting_team_id`, which is what history replays against. So #59
+changes which team *new* legs open with and nothing already played.
 
 Both fields are sent explicitly rather than omitted. The served schema's
 `required` for `GameConfig` is only `['game_type', 'best_of']`, but
@@ -1232,7 +1264,7 @@ What would be wrong is starting one without saying the first is still open.
 
 "The payload posted validates server-side on the first try for every reachable
 UI configuration" is a claim about all of them, which worked examples cannot
-discharge. It was checked two ways during #23:
+discharge. It was checked two ways during #23, and the second again in #59:
 
 1. `setup/config.test.ts` enumerates the reachable states and asserts each body
    against the constraints transcribed from the server. This is the committed
@@ -1243,6 +1275,12 @@ discharge. It was checked two ways during #23:
    carrying a variant, and a player on two teams. Six of them, one per game the
    picker offers, were then posted through a live `TestClient` and came back
    201 with the teams echoed exactly.
+3. #59 repeated (2) for the enlarged set. All 9,450 bodies were accepted, and
+   the five `start_rule`/`fixed_team` pairs occur 1,890 times each. The same
+   three controls were rejected, plus a `fixed_team` naming a third team and an
+   unknown `start_rule`. One 1v1 per starter per game type (ten) was posted
+   through a live `TestClient`: all came back 201 with the config echoed, and
+   leg 1's `starting_team_id` was Team B only under Team B starts.
 
 The second is a development-time measurement rather than a committed test,
 because a committed one would mean a backend test file for a frontend ticket.
