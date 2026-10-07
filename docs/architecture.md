@@ -1805,3 +1805,92 @@ rates, 12 segment bars with their labels, counts and fractions, both filtered
 views and the form table. All matched, nothing overflowed the 402px content box,
 and no `NaN` appeared. Verified in a real browser, not on the device; it joins
 #32.
+
+## End-to-end tests (#32)
+
+Two Playwright specs drive the app through the UI, in WebKit as an iPhone 17
+Pro, against the real image on a throwaway database. Playwright launches a
+browser engine and clicks through pages the way a person does; WebKit is the
+engine inside Safari. They live in `frontend/e2e/` and run as CI's `e2e` job.
+
+```bash
+docker build -f deploy/Dockerfile --build-arg GIT_SHA="$(git rev-parse --short HEAD)" -t darts:e2e .
+E2E_PORT=8100 scripts/e2e-up.sh darts:e2e      # 8100 beside a stand-in already on 8000
+cd frontend && npx playwright install webkit   # once, on a Mac
+E2E_BASE_URL=http://localhost:8100 npm run e2e
+```
+
+Each run needs a fresh database, so start the container again before
+re-running: spec 1 asserts exact leaderboard figures, and a second run's
+players would join the first run's.
+
+#### What the specs prove, and what they cannot
+
+- **x01** plays a scripted 501 double-out best-of-3 to 2-0, asserting the
+  bust (the status line, both darts kept on a visit that scored 0, the
+  remaining restored), the undo (the dart gone, the remaining restored) and the
+  checkout (the leg sheet's `Checkout, D20`) as each happens. Then it checks
+  every figure on `/stats` and both players' `/stats/:id` against numbers
+  worked out by hand in the spec's header. The 3-dart average is what proves the
+  database agrees: 57.81, where a missing bust would give 60.12 and a counted
+  undo 56.72. The whole match, not one leg, because the leaderboard hides
+  anyone under `DEFAULT_MIN_DARTS` (50) and "matches won" needs a finished match.
+- **Cricket** plays one cut-throat leg in which each player's surplus marks score
+  in the *other* column, asserted dart by dart, and the fewer-points player
+  closes out and wins.
+- **image** checks `/api/version` reports the commit CI built, so the run is
+  provably against that image and not something else on the port.
+
+Playwright's WebKit is not iOS Safari: `env(safe-area-inset-*)` is 0, there is
+no home-screen install, and the page is served from `localhost`, which **is** a
+secure context. The phone reaches the Pi over plain HTTP, which is not, so
+`navigator.wakeLock` and the service worker are both absent there and present
+here. Measured in WebKit: `isSecureContext` true on `localhost`, false on a LAN
+address, with `wakeLock` and `serviceWorker` missing on the latter. Those are
+the manual checklist in [ops.md](ops.md#device-checklist-v1-sign-off), not this
+run.
+
+#### Decisions
+
+**Retries are 0, everywhere.** Mutations never retry and the server is
+authoritative, so a spec that fails and then passes on a second attempt is a
+double submit or an ordering bug, and a retry would hide it.
+
+**One worker, serial.** Both specs share a database and spec 1 asserts on the
+leaderboard, which is everybody.
+
+**The viewport is 402×874, not the preset's 402×681.** Playwright's
+`iPhone 17 Pro` preset is a Safari tab with its toolbars. The app is installed
+to the home screen and #24–#27 were built and measured for the whole screen.
+The preset still supplies the WebKit user agent, touch and 3× density.
+
+**CI builds the image again rather than receiving `image`'s.** Passing it
+across would mean `docker save` and a few-hundred-megabyte artifact on every
+push. Same Dockerfile, same `GIT_SHA`, same GHA cache, read only.
+
+**`scripts/e2e-up.sh` makes the data directory world-writable.** The image runs
+as uid 1000 and GitHub's runner is uid 1001, so a directory the runner created
+is not writable by the container and the boot check fails: #28's trap, in a
+temporary directory on a disposable machine. Automatic backups stay on, as
+shipped.
+
+**No test hooks in the app.** Everything is found by role and accessible name,
+as the component tests already do. Nothing in `frontend/src/` changed for #32.
+
+**Traces only on failure.** `trace: 'retain-on-failure'`, uploaded as the
+`playwright-traces` artifact. A trace is the run recorded step by step: each
+action, the page before and after it, network and console. Open one with
+`npx playwright show-trace trace.zip`. The job also prints `docker logs` on
+failure, since a trace shows what the browser saw but not why the server
+answered as it did.
+
+#### Found while writing them
+
+The match-complete sheet's "Match average" can show leg 1's figures. Both
+sheets read `useMatchStats`, the leg-1 sheet fetches it, nothing invalidates it
+when darts are thrown, and `STALE_TIME_MS` is 5 s. A deciding leg finished
+within five seconds of the leg-1 sheet therefore reuses leg 1's numbers. No
+person throws that fast; on the phone the cache is stale by then and refetches
+on mount, which at most flashes the old figures. Spec 1 asserts the sheet's
+winner and leg tally and not its averages, and says why. Not fixed here: #32 is
+not a feature ticket.
