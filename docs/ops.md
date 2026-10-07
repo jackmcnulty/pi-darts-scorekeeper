@@ -444,32 +444,32 @@ Then set the phone's Auto-Lock back.
 
 ### Results
 
-Device pass begun 2026-10-07 (UTC). Pi: **Raspberry Pi 5 Model B**, Debian 12
+Device pass 2026-10-07 (UTC). Pi: **Raspberry Pi 5 Model B**, Debian 12
 Bookworm, aarch64, booting from a USB drive (`/dev/sda2`), Docker 29.8.2,
 operator `jackm` (uid 1000), hostname `darts`. Image: `1ae5fe3` from B3, then
-`1f628c7` from B4 step 7 onwards. iPhone: iPhone 17 Pro, iOS ___.
+`1f628c7` from B4 step 7 onwards. iPhone: iPhone 17 Pro, iOS 27.0.1.
 
 "Over SSH" below means run from the Mac against the real Pi with Jack's
 passwordless SSH. Nothing in this table was run on the stand-in.
 
 | Item | Result | How, and notes |
 | --- | --- | --- |
-| A1 Safe areas | not run | Needs the iPhone. |
-| A2 One-handed reach | not run | Needs the iPhone. |
-| A3 No zoom on double-tap | not run | Needs the iPhone. |
-| A4 Wake lock through a match | not run | Needs the iPhone. Expected to fail over HTTP ([#71](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/71)). |
-| A5 Home-screen install | not run | Needs the iPhone. |
-| A6 Rotation | not run | Needs the iPhone. Landscape has no layout. |
-| A7 402×874 fit | not run | Needs the iPhone. |
+| A1 Safe areas | **pass** | Jack, on the phone. |
+| A2 One-handed reach | **pass** | Jack, on the phone. |
+| A3 No zoom on double-tap | **pass** | Jack, on the phone. |
+| A4 Wake lock through a match | **fail, as expected** | Jack, on the phone. The screen is not held awake: `navigator.wakeLock` does not exist over plain HTTP. [#71](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/71). |
+| A5 Home-screen install | **pass** | Jack, on the phone. |
+| A6 Rotation | **pass for v1**; landscape has no layout | Jack, on the phone: nothing lost on rotating. Landscape itself is the known gap (5 of 22 keys fit, measured in WebKit). No ticket; a decision for after v1. |
+| A7 402×874 fit | **pass** | Jack, on the phone. Closes the fit deferred by #24–#27. |
 | B1 Flash | **pass** | Over SSH: `aarch64`, `bookworm`, uid 1000, hostname `darts`, `darts.local` resolves from the Mac. User is `jackm`, not `pi`; see the note at the top. |
-| B2 Bootstrap twice | **first run pass**; second run not run | First run by Jack on the Pi: Docker (29.8.2, Compose 5.6.0) installed on Bookworm, Samba 4.17.12 installed with `smb.conf` validated, `nmbd` disabled, Avahi present, hostname `darts`, the snapshot timer enabled. Both branches ran for the first time anywhere. The second run needs `sudo` on the Pi. |
+| B2 Bootstrap twice | **pass** | Both runs by Jack on the Pi. The second rewrote `compose.yaml` and `smb.conf` as designed, and `docker.list` holds the Docker source exactly once. First run: Docker (29.8.2, Compose 5.6.0) installed on Bookworm, Samba 4.17.12 installed with `smb.conf` validated, `nmbd` disabled, Avahi present, hostname `darts`, the snapshot timer enabled. Both branches ran for the first time anywhere. |
 | B3 First deploy | **pass** | Run by Jack. Healthy on `1ae5fe3`, `"detail":null`. Not timed. |
-| B4 deploy.md steps 2–9 | **pass**: 2, 3, 4, 5, 6, 7, 9; not run: 8 | Over SSH. 2: container `uid=1000(darts)`, files owned 1000. 3: `healthy`, `Up … (healthy)`. 4: logfmt. 5: `shutdown checkpoint truncated=true busy=false`, no `-wal` left. 6: **the documented command did not crash anything** (no `kill` in the image; PID 1 ignores SIGKILL from inside); corrected to a host-side kill, after which `restarts=1` and healthy in 3 s. 7: deploying `1f628c7` over `1ae5fe3` left `/api/players` byte-identical and the matches digest unchanged; the normal deploy took 54.5 s including the 34 s test suite. 9: Jack scored a 301 leg on the phone (match 1). **8, the power-cord pull, needs Jack's hands.** |
-| B5 deploy.md steps 10–15 | **pass**: 11, 13, 14, 15; not run: 10 (Finder), 12 (DB Browser) | From the Mac, `mount_smbfs -N //guest@darts.local/darts`: exactly the two files, no password. 11: `touch`, `cp`, `rm` all `Permission denied`, Pi unchanged. 13: DuckDB counted 20, equal to `row_counts.darts`, no sidecar. 14: from the journal, timer runs 300.8, 301.1, 301.0, 301.0 s apart (the first two failed with curl exit 7 before the app was deployed, as designed). 15: a match finished at 02:18:08.023 was on the share 60 ms later (`snapshot after match`). 10's Finder sidebar and 12's DB Browser need Jack at the Mac. |
+| B4 deploy.md steps 2–9 | **pass**: 2–7, 9; 8 **partly**: a clean reboot, not a power cut | Over SSH. 2: container `uid=1000(darts)`, files owned 1000. 3: `healthy`, `Up … (healthy)`. 4: logfmt. 5: `shutdown checkpoint truncated=true busy=false`, no `-wal` left. 6: **the documented command did not crash anything** (no `kill` in the image; PID 1 ignores SIGKILL from inside); corrected to a host-side kill, after which `restarts=1` and healthy in 3 s. 7: deploying `1f628c7` over `1ae5fe3` left `/api/players` byte-identical and the matches digest unchanged; the normal deploy took 54.5 s including the 34 s test suite. 9: Jack scored a 301 leg on the phone (match 1). 8: Jack ran `sudo reboot`. The app checkpointed on the way down (`truncated=true`), the Pi booted in 50.6 s, and the app was healthy 72 s after it stopped, with no intervention and the data intact. That proves it comes back at boot. **A sudden power loss, which is what step 8 asks for, was not tested.** |
+| B5 deploy.md steps 10–15 | **pass** | From the Mac, `mount_smbfs -N //guest@darts.local/darts`: exactly the two files, no password. 11: `touch`, `cp`, `rm` all `Permission denied`, Pi unchanged. 13: DuckDB counted 20, equal to `row_counts.darts`, no sidecar. 14: from the journal, timer runs 300.8, 301.1, 301.0, 301.0 s apart (the first two failed with curl exit 7 before the app was deployed, as designed). 15: a match finished at 02:18:08.023 was on the share 60 ms later (`snapshot after match`). 10 (the Finder mount and sidebar) and 12 (DB Browser, no lock error): Jack, at the Mac. |
 | B6 Rollback drill | **pass** | Over SSH, from a throwaway worktree with `raise RuntimeError("drill")` in `main.py`, `--skip-tests`. Exit 1; rolled back to `1ae5fe3`, healthy 43 s after the broken start; 70 s end to end including build and transfer. Matches digest unchanged; the broken image was deleted from the Pi. |
 | B7 Automatic backups | **pass** | Over SSH: the first start with a match backed up 62 ms after its boot check; each later start did too, with `pruned=1` collapsing the same hour. The first start of all logged nothing to back up, correctly (no matches). |
-| B8 backup-pull.sh | **pull pass**; Pi-off half not run | `pulled darts-20261007T021230Z.db (196608 bytes, schema version 3, integrity ok)`, 0.19 s over the LAN. The Pi-off half needs Jack to switch it off. |
-| B9 Cold start | not run | Needs the iPhone and the Pi switched off. |
+| B8 backup-pull.sh | **pull pass**; Pi-off half not run | `pulled darts-20261007T021230Z.db (196608 bytes, schema version 3, integrity ok)`, 0.19 s over the LAN. The Pi-off half was not run: the only time the Pi was down was a 17 s reboot. #31 measured that path with no Pi on the network at all. |
+| B9 Cold start | not run | Needs the Pi switched off with the phone in hand. Expected to show an error rather than the offline shell ([#71](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/71)). |
 | B10 Restore from a Mac copy | **pass** | Over SSH, `dr.md`'s procedure word for word with `jackm@`. Variant: instead of wiping the Pi, the Pi was changed after the pull (two players and a match added for B5), then the copy restored over it, so nothing of Jack's was deleted. Digests before and after, byte-identical: `darts.csv` `4a5f8d37…f795`, `matches.csv` `4b4a5391…6455`, `stats.json` `c5f1d1cc…1b5b`. Health `healthy`, `"detail":null`; 20 darts and 1 match, equal to the copy; the test players gone. The procedure took 5 s; the replaced database was kept as `darts.replaced-20261007T021832Z.db`. dr.md's "add a player" write check was left to the phone rather than leave a test player behind. |
 | B11 Health after | **pass** | Over SSH: `healthy` on `1f628c7`, everything owned 1000, container `(healthy)`, 9% of the disk used. |
 
