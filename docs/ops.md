@@ -334,7 +334,8 @@ transfer over the LAN to the SD card has never been timed
 [deploy.md → Manual verification checklist](deploy.md#manual-verification-checklist),
 steps 2 to 9, as written: non-root and writable, health, logs, clean-shutdown
 checkpoint, crash recovery, image replacement, **a real power-cord pull**, and
-reachable from the phone. Where a step says `deploy/compose.yaml`,
+reachable from the phone. Step 6's crash command was corrected during this
+device pass: kill the server from the host, not from inside the container. Where a step says `deploy/compose.yaml`,
 `/etc/darts/compose.yaml` is the same file installed by bootstrap. Step 7's
 "build and load a new image" is covered by B6's two deploys. Step 9 is
 satisfied by Part A.
@@ -443,25 +444,43 @@ Then set the phone's Auto-Lock back.
 
 ### Results
 
-Device: iPhone 17 Pro, iOS ___ · Pi: ___ · Image sha: ___ · Date: ___
+Device pass begun 2026-10-07 (UTC). Pi: **Raspberry Pi 5 Model B**, Debian 12
+Bookworm, aarch64, booting from a USB drive (`/dev/sda2`), Docker 29.8.2,
+operator `jackm` (uid 1000), hostname `darts`. Image: `1ae5fe3` from B3, then
+`1f628c7` from B4 step 7 onwards. iPhone: iPhone 17 Pro, iOS ___.
 
-| Item | Result | Notes |
+"Over SSH" below means run from the Mac against the real Pi with Jack's
+passwordless SSH. Nothing in this table was run on the stand-in.
+
+| Item | Result | How, and notes |
 | --- | --- | --- |
-| A1 Safe areas | not run | |
-| A2 One-handed reach | not run | |
-| A3 No zoom on double-tap | not run | |
-| A4 Wake lock through a match | not run | Expected to fail over HTTP |
-| A5 Home-screen install | not run | |
-| A6 Rotation | not run | Landscape has no layout |
-| A7 402×874 fit | not run | |
-| B1 Flash | not run | |
-| B2 Bootstrap twice | not run | |
-| B3 First deploy | not run | |
-| B4 deploy.md steps 2–9 | not run | |
-| B5 deploy.md steps 10–15 | not run | |
-| B6 Rollback drill | not run | |
-| B7 Automatic backups | not run | |
-| B8 backup-pull.sh | not run | |
-| B9 Cold start | not run | |
-| B10 Restore from a Mac copy | not run | |
-| B11 Health after | not run | |
+| A1 Safe areas | not run | Needs the iPhone. |
+| A2 One-handed reach | not run | Needs the iPhone. |
+| A3 No zoom on double-tap | not run | Needs the iPhone. |
+| A4 Wake lock through a match | not run | Needs the iPhone. Expected to fail over HTTP ([#71](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/71)). |
+| A5 Home-screen install | not run | Needs the iPhone. |
+| A6 Rotation | not run | Needs the iPhone. Landscape has no layout. |
+| A7 402×874 fit | not run | Needs the iPhone. |
+| B1 Flash | **pass** | Over SSH: `aarch64`, `bookworm`, uid 1000, hostname `darts`, `darts.local` resolves from the Mac. User is `jackm`, not `pi`; see the note at the top. |
+| B2 Bootstrap twice | **first run pass**; second run not run | First run by Jack on the Pi: Docker (29.8.2, Compose 5.6.0) installed on Bookworm, Samba 4.17.12 installed with `smb.conf` validated, `nmbd` disabled, Avahi present, hostname `darts`, the snapshot timer enabled. Both branches ran for the first time anywhere. The second run needs `sudo` on the Pi. |
+| B3 First deploy | **pass** | Run by Jack. Healthy on `1ae5fe3`, `"detail":null`. Not timed. |
+| B4 deploy.md steps 2–9 | **pass**: 2, 3, 4, 5, 6, 7, 9; not run: 8 | Over SSH. 2: container `uid=1000(darts)`, files owned 1000. 3: `healthy`, `Up … (healthy)`. 4: logfmt. 5: `shutdown checkpoint truncated=true busy=false`, no `-wal` left. 6: **the documented command did not crash anything** (no `kill` in the image; PID 1 ignores SIGKILL from inside); corrected to a host-side kill, after which `restarts=1` and healthy in 3 s. 7: deploying `1f628c7` over `1ae5fe3` left `/api/players` byte-identical and the matches digest unchanged; the normal deploy took 54.5 s including the 34 s test suite. 9: Jack scored a 301 leg on the phone (match 1). **8, the power-cord pull, needs Jack's hands.** |
+| B5 deploy.md steps 10–15 | **pass**: 11, 13, 14, 15; not run: 10 (Finder), 12 (DB Browser) | From the Mac, `mount_smbfs -N //guest@darts.local/darts`: exactly the two files, no password. 11: `touch`, `cp`, `rm` all `Permission denied`, Pi unchanged. 13: DuckDB counted 20, equal to `row_counts.darts`, no sidecar. 14: from the journal, timer runs 300.8, 301.1, 301.0, 301.0 s apart (the first two failed with curl exit 7 before the app was deployed, as designed). 15: a match finished at 02:18:08.023 was on the share 60 ms later (`snapshot after match`). 10's Finder sidebar and 12's DB Browser need Jack at the Mac. |
+| B6 Rollback drill | **pass** | Over SSH, from a throwaway worktree with `raise RuntimeError("drill")` in `main.py`, `--skip-tests`. Exit 1; rolled back to `1ae5fe3`, healthy 43 s after the broken start; 70 s end to end including build and transfer. Matches digest unchanged; the broken image was deleted from the Pi. |
+| B7 Automatic backups | **pass** | Over SSH: the first start with a match backed up 62 ms after its boot check; each later start did too, with `pruned=1` collapsing the same hour. The first start of all logged nothing to back up, correctly (no matches). |
+| B8 backup-pull.sh | **pull pass**; Pi-off half not run | `pulled darts-20261007T021230Z.db (196608 bytes, schema version 3, integrity ok)`, 0.19 s over the LAN. The Pi-off half needs Jack to switch it off. |
+| B9 Cold start | not run | Needs the iPhone and the Pi switched off. |
+| B10 Restore from a Mac copy | **pass** | Over SSH, `dr.md`'s procedure word for word with `jackm@`. Variant: instead of wiping the Pi, the Pi was changed after the pull (two players and a match added for B5), then the copy restored over it, so nothing of Jack's was deleted. Digests before and after, byte-identical: `darts.csv` `4a5f8d37…f795`, `matches.csv` `4b4a5391…6455`, `stats.json` `c5f1d1cc…1b5b`. Health `healthy`, `"detail":null`; 20 darts and 1 match, equal to the copy; the test players gone. The procedure took 5 s; the replaced database was kept as `darts.replaced-20261007T021832Z.db`. dr.md's "add a player" write check was left to the phone rather than leave a test player behind. |
+| B11 Health after | **pass** | Over SSH: `healthy` on `1f628c7`, everything owned 1000, container `(healthy)`, 9% of the disk used. |
+
+#### Found during the device pass
+
+Filed, none blocking v1:
+[#67](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/67) setup defaults,
+[#68](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/68) single-player,
+[#69](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/69) the visit strip,
+[#70](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/70) a way home,
+[#71](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/71) HTTPS on the LAN,
+[#72](https://github.com/jackmcnulty/pi-darts-scorekeeper/issues/72) the match sheet's averages.
+Fixed in #32's docs: deploy.md step 6's crash command; B3's expected health
+detail; operators who are not `pi`.
