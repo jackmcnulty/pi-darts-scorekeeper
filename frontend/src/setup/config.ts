@@ -90,6 +90,70 @@ function other(team: TeamId): TeamId {
   return team === 'A' ? 'B' : 'A'
 }
 
+/**
+ * Who opens each leg, as one flat choice (#59).
+ *
+ * The engine has four rules and `fixed` needs a team, which with two teams is
+ * five things a player can mean. They are offered as five chips rather than a
+ * four-way rule control plus a team control shown under `fixed`, for the same
+ * reason the game picker is flat: every choice is one tap, and the default
+ * (`alternate`, as before #59) is none. Measured at 402x781 in a browser, a
+ * four-way segmented control wraps "Loser starts" and "Winner starts" onto two
+ * lines; five chips wrap onto three rows with every label on one. Jack chose
+ * this shape on #59 over the ticket's literal four-plus-a-picker.
+ *
+ * Flat is also what keeps `fixed_team` honest. `rotation.starting_team` reads
+ * `fixed_team` for leg 1 under `loser_starts` and `winner_starts` too, not
+ * only under `fixed` -- see the `STARTER_CONFIG` comment -- so a team picker
+ * that remembered "Team B" after the rule moved off `fixed` would quietly hand
+ * Team B the first leg. With one field there is nothing to remember: the
+ * reducer can only reach the five states below, and each one is a whole
+ * `start_rule` and `fixed_team` pair.
+ */
+export type StarterId = 'alternate' | 'loser_starts' | 'winner_starts' | 'fixed-A' | 'fixed-B'
+
+/**
+ * What each starter contributes to the config.
+ *
+ * `fixed_team` is the team's index in `TEAM_IDS`, which is the order
+ * `buildMatch` posts the rosters in, so "Team B" and `teams[1]` cannot come
+ * apart. Every rule other than `fixed` sends 0, which is not filler:
+ * `starting_team` opens leg 1 at `fixed_team` under `loser_starts` and
+ * `winner_starts` (`alternate` alone ignores it and starts at 0). Sending 0
+ * means Team A -- whoever was tapped first -- throws first in leg 1 under all
+ * three, exactly as every match did before #59. Only "Team B starts" puts B
+ * first.
+ */
+const STARTER_CONFIG: Record<StarterId, Pick<GameConfig, 'start_rule' | 'fixed_team'>> = {
+  alternate: { start_rule: 'alternate', fixed_team: 0 },
+  loser_starts: { start_rule: 'loser_starts', fixed_team: 0 },
+  winner_starts: { start_rule: 'winner_starts', fixed_team: 0 },
+  'fixed-A': { start_rule: 'fixed', fixed_team: TEAM_IDS.indexOf('A') },
+  'fixed-B': { start_rule: 'fixed', fixed_team: TEAM_IDS.indexOf('B') },
+}
+
+export interface StarterOption {
+  value: StarterId
+  label: string
+}
+
+/**
+ * The starter chips, in the order a player reads them: the default, the two
+ * that follow the last leg, then the two that never move. The labels say who
+ * starts, so they read on their own without a heading over them.
+ *
+ * At one leg to win the first three behave identically, since all of them
+ * open leg 1 with Team A. The chips stay anyway (Jack, #59): "Team B starts"
+ * still changes who throws first, and hiding the row would hide that too.
+ */
+export const STARTER_OPTIONS: readonly StarterOption[] = [
+  { value: 'alternate', label: 'Alternate' },
+  { value: 'loser_starts', label: 'Loser starts' },
+  { value: 'winner_starts', label: 'Winner starts' },
+  { value: 'fixed-A', label: 'Team A starts' },
+  { value: 'fixed-B', label: 'Team B starts' },
+]
+
 export interface Assignment {
   playerId: number
   team: TeamId
@@ -110,6 +174,9 @@ export interface SetupState {
   inRule: Rule
   outRule: Rule
   legsToWin: number
+  /** Who opens each leg. Applies to every game, so unlike the x01 rules it is
+   *  never hidden and never dormant. */
+  starter: StarterId
   /** In tap order. At most one entry per player, which is what makes the
    *  server's "a player cannot appear on two teams" true by construction. */
   assignments: readonly Assignment[]
@@ -134,6 +201,8 @@ export const INITIAL_STATE: SetupState = {
   outRule: 'double',
   // #4's mockup opens this stepper on 3, and first-to-three is the pub default.
   legsToWin: 3,
+  // What every match sent before #59, and what the server defaults to.
+  starter: 'alternate',
   assignments: [],
 }
 
@@ -142,6 +211,7 @@ export type SetupAction =
   | { type: 'inRule'; rule: Rule }
   | { type: 'outRule'; rule: Rule }
   | { type: 'legsToWin'; legs: number }
+  | { type: 'starter'; starter: StarterId }
   | { type: 'tapPlayer'; playerId: number }
 
 /**
@@ -184,6 +254,8 @@ export function reduce(state: SetupState, action: SetupAction): SetupState {
       return { ...state, outRule: action.rule }
     case 'legsToWin':
       return { ...state, legsToWin: Math.min(MAX_LEGS, Math.max(MIN_LEGS, action.legs)) }
+    case 'starter':
+      return { ...state, starter: action.starter }
     case 'tapPlayer':
       return { ...state, assignments: tapPlayer(state.assignments, action.playerId) }
   }
@@ -213,13 +285,7 @@ export function buildMatch(state: SetupState): MatchWrite | null {
   const config: GameConfig = {
     ...GAME_CONFIG[state.game],
     best_of: 2 * state.legsToWin - 1,
-    // #23 has no starter control, so every match alternates from team A.
-    // `rotation.starting_team` ignores `fixed_team` entirely under this rule;
-    // it is sent because the generated type requires it, and 0 is the value
-    // the server would have defaulted to. The engine implements three other
-    // rules and none of them are reachable from this screen -- #24 owns that.
-    start_rule: 'alternate',
-    fixed_team: 0,
+    ...STARTER_CONFIG[state.starter],
   }
 
   return {

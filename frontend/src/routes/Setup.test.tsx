@@ -150,6 +150,27 @@ describe('control visibility', () => {
       expect(screen.getByRole('button', { name })).toBeInTheDocument()
     }
   })
+
+  it('offers the starter for every game, on Alternate until told otherwise', async () => {
+    const user = userEvent.setup()
+    renderApp('/setup')
+    await rosterList()
+
+    const names = ['Alternate', 'Loser starts', 'Winner starts', 'Team A starts', 'Team B starts']
+    for (const game of ['501', 'Cricket']) {
+      await user.click(screen.getByRole('button', { name: game }))
+      const starter = screen.getByRole('group', { name: 'Who starts each leg' })
+      expect(
+        within(starter)
+          .getAllByRole('button')
+          .map((chip) => chip.textContent),
+      ).toEqual(names)
+      expect(within(starter).getByRole('button', { name: 'Alternate' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      )
+    }
+  })
 })
 
 describe('the start button', () => {
@@ -331,6 +352,60 @@ describe('building a match', () => {
       best_of: 7,
       start_rule: 'alternate',
       fixed_team: 0,
+    })
+  })
+
+  it('sends loser starts in one tap, with Team A opening the first leg', async () => {
+    const user = userEvent.setup()
+    renderApp('/setup')
+    await rosterList()
+
+    const starter = screen.getByRole('group', { name: 'Who starts each leg' })
+    await user.click(within(starter).getByRole('button', { name: 'Loser starts' }))
+    expect(within(starter).getByRole('button', { name: 'Loser starts' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(within(starter).getByRole('button', { name: 'Alternate' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+
+    await user.click(row('Jack'))
+    await user.click(row('Dad'))
+    await user.click(screen.getByRole('button', { name: 'Start match' }))
+
+    await waitFor(() => {
+      expect(posted).toHaveLength(1)
+    })
+    expect(posted[0]?.config).toMatchObject({ start_rule: 'loser_starts', fixed_team: 0 })
+  })
+
+  it('sends Team B starts as fixed on the second team, for cricket too', async () => {
+    const user = userEvent.setup()
+    renderApp('/setup')
+    await rosterList()
+
+    await user.click(screen.getByRole('button', { name: 'Cut-throat cricket' }))
+    const starter = screen.getByRole('group', { name: 'Who starts each leg' })
+    await user.click(within(starter).getByRole('button', { name: 'Team B starts' }))
+    await user.click(row('Jack'))
+    await user.click(row('Dad'))
+    await user.click(screen.getByRole('button', { name: 'Start match' }))
+
+    await waitFor(() => {
+      expect(posted).toHaveLength(1)
+    })
+    expect(posted[0]).toEqual({
+      config: {
+        game_type: 'cricket',
+        variant: 'cutthroat',
+        best_of: 5,
+        start_rule: 'fixed',
+        fixed_team: 1,
+      },
+      // Dad is Team B, and Team B is `teams[1]`: the index fixed_team names.
+      teams: [{ player_ids: [1] }, { player_ids: [2] }],
     })
   })
 
