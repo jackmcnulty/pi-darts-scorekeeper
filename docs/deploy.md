@@ -374,7 +374,8 @@ hostname -I
 Open `http://<that-address>:8000/` on the iPhone, on the same LAN.
 
 **Expect:** the app loads and a leg can be scored end to end. This overlaps
-#32's device QA pass and is signed off there.
+#32's device QA pass and is signed off there
+([ops.md → Device checklist](ops.md#device-checklist-v1-sign-off), B4).
 
 ## The broken-build rollback drill
 

@@ -132,3 +132,7 @@ docs/              architecture and data-model notes
   check, backup and restore.
 - [docs/deploy.md](docs/deploy.md) — packaging, host layout, and the manual Pi
   verification checklist.
+- [docs/ops.md](docs/ops.md) — day-to-day operation (logs, restart, deploy,
+  rollback, backup, restore) and the v1 device checklist.
+- [docs/dr.md](docs/dr.md) — disaster recovery: losing the SD card, corruption,
+  accidental loss.
