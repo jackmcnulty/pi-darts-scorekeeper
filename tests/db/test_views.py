@@ -318,3 +318,50 @@ def test_a_restored_database_comes_back_with_its_views(tmp_path: Path) -> None:
     assert status.state is DatabaseState.HEALTHY
     with connection(database) as conn:
         assert view_names(conn) == EXPECTED
+
+
+def test_single_sided_is_one_team_and_never_wins(db: sqlite3.Connection) -> None:
+    """#68: the views' `won` is 0 in a one-team match, whatever winner_team_id says.
+
+    winner_team_id is set as the engine sets it -- the finisher -- and the views
+    alone have to refuse to call that a win. `results.sql` also drops these rows
+    from "played", which would hide a broken `won` from every endpoint; reading
+    the views directly is what catches it. A 1v1 of two `is_solo` teams sits
+    beside it to keep `single_sided` and `is_solo` visibly apart.
+    """
+    for player in (1, 2, 3):
+        db.execute("INSERT INTO players(id, display_name) VALUES (?, ?)", (player, f"P{player}"))
+    for match, teams in ((1, ((10, 1),)), (2, ((20, 2), (21, 3)))):
+        db.execute(
+            """INSERT INTO matches(id, config_json, game_type, variant, best_of)
+               VALUES (?, '{}', 'cricket', 'quick', 1)""",
+            (match,),
+        )
+        for index, (team, player) in enumerate(teams):
+            db.execute(
+                "INSERT INTO teams(id, match_id, team_index, is_solo) VALUES (?, ?, ?, 1)",
+                (team, match, index),
+            )
+            db.execute("INSERT INTO team_members VALUES (?, ?, 0)", (team, player))
+        winner = teams[0][0]
+        db.execute(
+            """INSERT INTO legs(id, match_id, leg_index, starting_team_id, winner_team_id,
+                                completed_at)
+               VALUES (?, ?, 0, ?, ?, 'now')""",
+            (match * 100, match, winner, winner),
+        )
+        db.execute(
+            "UPDATE matches SET winner_team_id = ?, completed_at = 'now' WHERE id = ?",
+            (winner, match),
+        )
+    install_views(db)
+    for view in ("v_leg_players", "v_match_players"):
+        rows = db.execute(
+            f"SELECT match_id, player_id, is_solo, single_sided, won FROM {view} "
+            "ORDER BY match_id, player_id"
+        ).fetchall()
+        assert [tuple(r) for r in rows] == [
+            (1, 1, 1, 1, 0),
+            (2, 2, 1, 0, 1),
+            (2, 3, 1, 0, 0),
+        ], view

@@ -20,6 +20,7 @@ import {
   columnLabel,
   contextLine,
   CRICKET_TARGETS,
+  gridColumns,
   MARK_GLYPHS,
   MARKS_TO_CLOSE,
   NON_TARGETS,
@@ -29,7 +30,7 @@ import {
   type Variant,
 } from './cricket'
 import { ALL_KEYS, NUMBER_KEYS } from './keypad'
-import { matchState, pairTeams, type MatchStateOptions } from './statefixture'
+import { matchState, pairTeams, practiceTeams, type MatchStateOptions } from './statefixture'
 
 const VARIANTS: Variant[] = ['standard', 'cutthroat', 'quick']
 
@@ -405,5 +406,49 @@ describe('what changed since the last payload', () => {
   it('keys a cell by team and target, so two teams on one row stay apart', () => {
     expect(cellKey(1, 20)).not.toBe(cellKey(2, 20))
     expect(cellKey(1, 20)).not.toBe(cellKey(1, 19))
+  })
+})
+
+describe('a practice match: one team (#68)', () => {
+  function practice(jack: Record<number, number>, variant: Variant) {
+    const state = matchState({
+      gameType: 'cricket',
+      variant,
+      teams: practiceTeams(),
+      marks: [jack, {}],
+      legsWon: [1],
+    })
+    return boardView(state, state.current_leg)
+  }
+
+  it('is one column, and says it is single-sided', () => {
+    const view = practice({ 20: 3, 19: 1 }, 'standard')
+
+    expect(view.singleSided).toBe(true)
+    expect(view.columns.map((column) => column.name)).toEqual(['Jack'])
+    expect(view.rows.every((row) => row.cells.length === 1)).toBe(true)
+    expect(cell(view, 19, 0).marks).toBe(1)
+  })
+
+  it('hides the points in every variant, since nothing can score', () => {
+    for (const variant of VARIANTS) {
+      expect(practice({}, variant).showsPoints).toBe(false)
+    }
+    // Two teams are unchanged: points show outside quick.
+    expect(board({}, {}, { variant: 'cutthroat' }).showsPoints).toBe(true)
+  })
+
+  it('puts the spine on the left and the team beside it', () => {
+    const one = gridColumns(true)
+    expect([one.spine, one.team(0)]).toEqual([1, 2])
+    const two = gridColumns(false)
+    expect([two.team(0), two.spine, two.team(1)]).toEqual([1, 2, 3])
+  })
+
+  it('reads its legs aloud as finished', () => {
+    const view = practice({}, 'standard')
+    expect(columnLabel(view.columns[0]!, view.showsPoints, view.singleSided)).toBe(
+      'Jack, 1 leg finished, throwing now',
+    )
   })
 })

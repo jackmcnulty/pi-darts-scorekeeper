@@ -21,6 +21,12 @@ configuration by `GameConfig`, the team shapes here, and the starting team by
 `is_solo` is derived from the member count rather than supplied. The schema
 only checks it is 0 or 1, so nothing there stops a two-person team claiming to
 be solo; deriving it is what makes that unrepresentable.
+
+`is_solo` is about one team's *members*. A match with one *team* -- #68's
+single-sided practice match -- is a different fact, and it is not stored at
+all: it is the team count, read where it matters (`views.sql`). A 1v1 has two
+`is_solo` teams and is not single-sided; a pair practising together is
+single-sided with no `is_solo` team.
 """
 
 import sqlite3

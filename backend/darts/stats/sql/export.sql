@@ -101,7 +101,12 @@ SELECT
     m.in_rule                        AS in_rule,
     m.out_rule                       AS out_rule,
     m.best_of                        AS best_of,
-    m.match_winner_team_id           AS match_winner_team_id,
+    -- Never a winner in a single-sided match (#68). The column stores the
+    -- finisher there (see views.sql), and a spreadsheet reading "winner" would
+    -- call practice a win; blank says what it is. `status` still reads
+    -- `complete`, because that comes from completed_at.
+    CASE WHEN m.single_sided = 1 THEN NULL
+         ELSE m.match_winner_team_id END AS match_winner_team_id,
     COALESCE(l.legs_played, 0)       AS legs_played,
     COALESCE(l.legs_completed, 0)    AS legs_completed,
     COALESCE(t.darts_thrown, 0)      AS darts_thrown,

@@ -110,6 +110,8 @@ class PlayerStats:
     legs_won: int = 0
     matches_played: int = 0
     matches_won: int = 0
+    #: #68's practice matches, which are in none of the four tallies above.
+    single_sided_matches: int = 0
     x01: X01Stats = field(default_factory=X01Stats)
     cricket: CricketStats = field(default_factory=CricketStats)
     segments: tuple[Segment, ...] = ()
@@ -297,6 +299,9 @@ def _player(
         legs_won=int(leg_row["legs_won"]) if leg_row is not None else 0,
         matches_played=int(match_row["matches_played"]) if match_row is not None else 0,
         matches_won=int(match_row["matches_won"]) if match_row is not None else 0,
+        single_sided_matches=(
+            int(match_row["single_sided_matches"]) if match_row is not None else 0
+        ),
         x01=_x01(families.x01_totals.get(player_id), families.checkouts.get(player_id)),
         cricket=_cricket(
             families.cricket_totals.get(player_id), families.cricket_targets.get(player_id, [])

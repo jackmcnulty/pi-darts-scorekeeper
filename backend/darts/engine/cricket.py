@@ -37,6 +37,13 @@ implementations get wrong:
 
 Unlike x01, cricket has no bust, so a visit is never voided.
 
+**One team** (#68's single-sided practice match) needs no rule of its own. Both
+opponent rules are `all(...)` over the opponents, so with none they hold
+vacuously: every target is dead from the first dart, so nothing ever scores,
+and closing all seven wins in every variant. Solo cricket is closing out only,
+under `standard` and `cutthroat` exactly as under `quick`.
+`tests/engine/test_one_team.py` pins that reading down.
+
 On the shape of these functions
 -------------------------------
 #8 originally asked for x01's signatures verbatim so the replay layer could
@@ -234,9 +241,10 @@ def _is_dead(target: int, opponents: tuple[CricketTeamState, ...]) -> bool:
     closed it" and #8's "every team has closed it" say the same thing.
 
     With no opponents at all this is vacuously True and nothing ever scores.
-    That is the honest reading of the rule rather than a special case: cricket
-    is a game against somebody, and a caller who omits `opponents` is
-    describing a board with no live targets on it.
+    That is the honest reading of the rule rather than a special case: points
+    are scored against somebody, and a caller who omits `opponents` is
+    describing a board with no live targets on it. #68's single-sided match is
+    exactly that caller, and relies on it.
     """
     return all(opponent.has_closed(target) for opponent in opponents)
 

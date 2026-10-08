@@ -1,5 +1,5 @@
 /**
- * The few things both specs do: add a player, start a match, throw a dart.
+ * The few things every spec does: add a player, start a match, throw a dart.
  *
  * Everything goes through the UI a person would touch, found by role and
  * accessible name. Nothing here calls the API to set up state: #32 is a test of
@@ -20,8 +20,10 @@ export async function addPlayer(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Start a one-against-one match on /setup and return its id.
+ * Start a match on /setup and return its id.
  *
+ * `players` are tapped in order, so two make one against one and one is #68's
+ * practice match.
  * `game` is the name of the game button ("501", "Cut-throat cricket").
  * `outRule` is the Out rule radio's name ("Double out") and is x01 only; left
  * out, the match plays whatever /setup opens on.
@@ -35,7 +37,12 @@ export async function addPlayer(page: Page, name: string): Promise<void> {
  */
 export async function startMatch(
   page: Page,
-  options: { game: string; players: [string, string]; legsToWin: number; outRule?: string },
+  options: {
+    game: string
+    players: [string, ...string[]]
+    legsToWin: number
+    outRule?: string
+  },
 ): Promise<number> {
   await page.goto('/setup')
   await page.getByRole('button', { name: options.game, exact: true }).click()

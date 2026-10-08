@@ -37,7 +37,8 @@
 }
 
 /* Two teams with the target spine down the middle, which is #4's approved
- * layout and the only shape #23 can create. The header and every mark row share
+ * layout. #23 can create one other shape, #68's one-team practice match, which
+ * has its own rule below. The header and every mark row share
  * this grid, so the spine stays a single vertical line down the board. */
 .cricket__header,
 .cricket__row {
@@ -56,6 +57,15 @@
 .cricket__header > *,
 .cricket__row > * {
   grid-row: 1;
+}
+
+/* #68: one team, practice. The spine moves to the left and the one column takes
+ * the rest of the width, so the board is one full-width tile rather than half a
+ * board with nobody opposite. The placements are `gridColumns` in
+ * play/cricket.ts. Rows keep their height, so the keypad budget above holds. */
+.cricket--single-sided .cricket__header,
+.cricket--single-sided .cricket__row {
+  grid-template-columns: 56px 1fr;
 }
 
 .cricket__header {

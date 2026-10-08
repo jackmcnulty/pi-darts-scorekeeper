@@ -36,6 +36,7 @@ import {
   changesBetween,
   columnLabel,
   contextLine,
+  gridColumns,
   NON_TARGETS,
   NO_CHANGES,
   type BoardChanges,
@@ -52,6 +53,7 @@ import {
   shownVisit,
   VISIT_SIZE,
 } from '../play/leg'
+import { outcomeVerb } from '../matches/sides'
 import type { DartInput } from '../api/play'
 import { PlayFrame } from './PlayFrame'
 import './CricketBoard.css'
@@ -73,6 +75,7 @@ export function CricketBoard({
 }: CricketBoardProps) {
   const leg = legInPlay(match)
   const view = boardView(match, leg)
+  const grid = gridColumns(view.singleSided)
   const visit = shownVisit(leg)
   const playable = isPlayable(match)
 
@@ -134,12 +137,13 @@ export function CricketBoard({
 
   return (
     <PlayFrame context={contextLine(match, leg)}>
-      <div className="cricket">
-        {/* Two columns with the target spine down the middle, as #4 drew it.
-            #23's setup screen builds exactly two teams -- `TEAM_IDS` is
-            ['A', 'B'] -- so that is the only shape this board is ever handed;
-            a third team would want the spine moved to the left, which is one
-            grid rule in `CricketBoard.css` to revisit if #23 ever grows one. */}
+      <div className={`cricket${view.singleSided ? ' cricket--single-sided' : ''}`}>
+        {/* Two columns with the target spine down the middle, as #4 drew it,
+            or -- for #68's practice match -- the spine on the left and the one
+            team's column filling the rest. #23's setup screen builds one team
+            or two (`TEAM_IDS` is ['A', 'B']), so those are the only shapes this
+            board is handed; a third team would want its own grid rule in
+            `CricketBoard.css`. Every placement comes from `gridColumns`. */}
         <div className="cricket__header">
           {view.columns.map((column, index) => (
             <div
@@ -148,8 +152,8 @@ export function CricketBoard({
               // Placed rather than ordered: with only two items in a
               // three-column grid, `order` sequences them but auto-placement
               // still drops the second one into the middle column -- the spine.
-              style={{ gridColumn: index * 2 + 1 }}
-              aria-label={columnLabel(column, view.showsPoints)}
+              style={{ gridColumn: grid.team(index) }}
+              aria-label={columnLabel(column, view.showsPoints, view.singleSided)}
             >
               <span className="cricket__head-name">
                 <span className="cricket__dot" style={{ background: column.accent }} />
@@ -180,7 +184,11 @@ export function CricketBoard({
               {/* The row header leads in the DOM, which is the order a screen
                   reader should hear it; the explicit column is what puts the
                   spine between the two columns on screen. */}
-              <div className="cricket__target tnum" role="rowheader" style={{ gridColumn: 2 }}>
+              <div
+                className="cricket__target tnum"
+                role="rowheader"
+                style={{ gridColumn: grid.spine }}
+              >
                 {row.label}
               </div>
               {row.cells.map((cell, index) => (
@@ -188,7 +196,7 @@ export function CricketBoard({
                   key={cell.teamId}
                   className="cricket__marks"
                   role="cell"
-                  style={{ gridColumn: index * 2 + 1 }}
+                  style={{ gridColumn: grid.team(index) }}
                   data-state={cell.state}
                   data-marks={cell.marks}
                   data-closing={changes.closed.has(cellKey(cell.teamId, row.target))}
@@ -225,7 +233,7 @@ export function CricketBoard({
           <p className="cricket__done" role="status">
             {view.columns.find((column) => column.teamId === match.winner_team_id)?.name ??
               'Somebody'}{' '}
-            won the match. <Link to="/">Back to the start</Link>
+            {outcomeVerb(view.singleSided)} the match. <Link to="/">Back to the start</Link>
           </p>
         )}
 

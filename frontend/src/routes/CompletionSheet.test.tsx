@@ -20,7 +20,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { DartWrite, MatchState } from '../api/play'
 import '../styles/global.css'
 import { installServer, renderApp, server } from '../test-harness'
-import { leg, matchState, visit, DAD, JACK } from '../play/statefixture'
+import { leg, matchState, practiceTeams, visit, DAD, JACK } from '../play/statefixture'
 import { matchStats } from '../matches/historyfixture'
 
 installServer()
@@ -378,5 +378,49 @@ describe('a cricket match', () => {
     await userEvent.click(screen.getByRole('button', { name: /^20,/ }))
 
     expect(await screen.findByRole('dialog', { name: 'Leg 1 complete' })).toBeInTheDocument()
+  })
+})
+
+describe('a practice match (#68)', () => {
+  it('finishes the leg and the match, and names no winner', async () => {
+    responses = [
+      matchState({
+        teams: practiceTeams(),
+        bestOf: 3,
+        legIndex: 0,
+        legId: 7,
+        winnerTeamId: 1,
+        legsWon: [1],
+        winner: null,
+        activeLeg: leg({ legId: 8, legIndex: 1, teams: practiceTeams(), thrower: 0 }),
+      }),
+      matchState({
+        teams: practiceTeams(),
+        bestOf: 3,
+        legIndex: 1,
+        legId: 8,
+        winnerTeamId: 1,
+        legsWon: [2],
+        winner: 1,
+        activeLeg: null,
+        activeLegId: null,
+        thrower: null,
+      }),
+    ]
+    current = matchState({ teams: practiceTeams(), legsWon: [0] })
+    const user = userEvent.setup()
+    renderApp('/play/42')
+
+    await throwADart()
+    expect(await screen.findByRole('dialog', { name: 'Leg 1 complete' })).toBeInTheDocument()
+    expect(screen.getByText('Jack finished the leg')).toBeInTheDocument()
+    expect(screen.getByText('Jack throws first in leg 2')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+
+    await throwADart()
+    expect(await screen.findByRole('dialog', { name: 'Match complete' })).toBeInTheDocument()
+    expect(screen.getByText('Jack finished the match')).toBeInTheDocument()
+    expect(screen.getByLabelText('Jack, 2 legs')).toBeInTheDocument()
+    expect(screen.queryByText(/won the/)).not.toBeInTheDocument()
   })
 })

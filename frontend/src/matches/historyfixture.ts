@@ -243,6 +243,7 @@ export function matchStats(
         legs_won: 1,
         matches_played: 1,
         matches_won: 1,
+        single_sided_matches: 0,
         segments: [],
         x01: {
           darts_thrown: player.darts ?? 45,

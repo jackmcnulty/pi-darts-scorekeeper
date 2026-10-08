@@ -426,10 +426,14 @@ export function rankRows(rows: readonly LeaderboardRow[]): RankRow[] {
  * six, and "Last 6 matches" is true where "Last 10 matches" would not be. The
  * API echoes the request so a client *can* say what it asked; this says what it
  * got, which is the more useful of the two on a card.
+ *
+ * Practice matches (#68) count: the window reaches back over them and their
+ * darts are in the figures, but they are never in `matches_played`, so the
+ * server reports them separately and the heading adds the two.
  */
 export function windowLabel(stats: PlayerStats | undefined): string {
   if (stats === undefined) return 'Recent'
-  return `Last ${matches(stats.matches_played)}`
+  return `Last ${matches(stats.matches_played + stats.single_sided_matches)}`
 }
 
 /**

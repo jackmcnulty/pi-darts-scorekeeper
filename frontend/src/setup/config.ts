@@ -145,6 +145,10 @@ export interface StarterOption {
  * At one leg to win the first three behave identically, since all of them
  * open leg 1 with Team A. The chips stay anyway (Jack, #59): "Team B starts"
  * still changes who throws first, and hiding the row would hide that too.
+ *
+ * With one side (#68) all five mean "the only team starts", except the empty
+ * side's, which names nobody. That one is disabled rather than the row hidden
+ * (Jack, #68); see `effectiveStarter`.
  */
 export const STARTER_OPTIONS: readonly StarterOption[] = [
   { value: 'alternate', label: 'Alternate' },
@@ -277,20 +281,69 @@ export function membersOf(state: SetupState, team: TeamId): readonly Assignment[
 }
 
 /**
+ * The sides with somebody on them, in `TEAM_IDS` order -- the order posted.
+ *
+ * One of them is #68's single-sided match: practice, with nobody to beat. The
+ * tap model is unchanged by it. The first tap still lands on A and the second
+ * on B, so one tap is a practice match and two are one against one; #23's
+ * six-tap 2v2 is still six taps. A lone side may be either A or B -- tapping
+ * the only player on to B and leaving A empty is as much a practice match as
+ * the other way round.
+ */
+export function sidesOf(state: SetupState): TeamId[] {
+  return TEAM_IDS.filter((team) => membersOf(state, team).length > 0)
+}
+
+/**
+ * The side nobody is on, while the other one has players: a practice match.
+ *
+ * `null` otherwise -- for one against one, and for an empty list, where nobody
+ * has said yet how many sides there will be.
+ */
+export function emptySide(state: SetupState): TeamId | null {
+  const sides = sidesOf(state)
+  if (sides.length !== 1) return null
+  return TEAM_IDS.find((team) => !sides.includes(team)) ?? null
+}
+
+/**
+ * The starter that applies, which is the one chosen unless it names nobody.
+ *
+ * With one side, "Team B starts" while B is empty names a team that is not in
+ * the match, and the server refuses it (a 422 on `fixed_team`). So the chip is
+ * disabled (Jack, #68) and a choice already on it falls back to Alternate --
+ * which with one team means the same as every other starter, since all of
+ * them start the only team. Derived rather than written back into the state:
+ * tap a second player on and the choice that was made comes back, as it was.
+ */
+export function effectiveStarter(state: SetupState): StarterId {
+  const empty = emptySide(state)
+  return empty !== null && state.starter === `fixed-${empty}` ? 'alternate' : state.starter
+}
+
+/**
  * The body to post, or `null` when this state is not a match yet.
  *
- * `null` is #23's "at least 2 teams and every team has at least 1 player",
- * and it is the only thing the start button consults -- so a state the button
- * lets you start is a state this function has already built a body for.
+ * `null` is "at least 1 team and every posted team has at least 1 player" --
+ * #23's "at least 2" until #68 made one side a practice match -- and it is the
+ * only thing the start button consults, so a state the button lets you start
+ * is a state this function has already built a body for.
+ *
+ * Only the sides with players are posted. With one, `fixed_team` is 0 whatever
+ * letter the side has: `effectiveStarter` never names the empty side, so a
+ * fixed starter names the one side posted, and that is `teams[0]`.
  */
 export function buildMatch(state: SetupState): MatchWrite | null {
-  const rosters = TEAM_IDS.map((team) => membersOf(state, team).map((a) => a.playerId))
-  if (!rosters.every((ids) => ids.length > 0)) return null
+  const sides = sidesOf(state)
+  if (sides.length === 0) return null
+  const rosters = sides.map((team) => membersOf(state, team).map((a) => a.playerId))
 
+  const starter = STARTER_CONFIG[effectiveStarter(state)]
   const config: GameConfig = {
     ...GAME_CONFIG[state.game],
     best_of: 2 * state.legsToWin - 1,
-    ...STARTER_CONFIG[state.starter],
+    ...starter,
+    fixed_team: sides.length === 1 ? 0 : starter.fixed_team,
   }
 
   return {

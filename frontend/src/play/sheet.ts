@@ -40,6 +40,7 @@
  */
 import type { LegLine, MatchStats } from '../api/history'
 import type { LegState, MatchState, Visit } from '../api/play'
+import { isSingleSided, outcomeVerb } from '../matches/sides'
 import { shownVisit } from './leg'
 
 /** A leg was won and the match goes on. */
@@ -89,6 +90,20 @@ export function sheetKey(sheet: SheetDue): string {
   return sheet.kind === 'match'
     ? `match-${String(sheet.leg.leg_id)}`
     : `leg-${String(sheet.leg.leg_id)}`
+}
+
+/**
+ * "Ana won the match", or "Ana finished the match" when it was practice.
+ *
+ * Both boards' end-of-match notices and both sheet headlines say it, so it is
+ * said here once. A single-sided match is never a win (#68, `matches/sides.ts`).
+ */
+export function outcomeLine(
+  state: MatchState,
+  teamId: number | null,
+  what: 'leg' | 'match',
+): string {
+  return `${winnerName(state, teamId)} ${outcomeVerb(isSingleSided(state))} the ${what}`
 }
 
 /** The winning team's name, or a neutral fallback if the payload has no team for it. */
@@ -182,7 +197,8 @@ export function tally(state: MatchState): TallyLine[] {
     teamId: team.id,
     name: winnerName(state, team.id),
     legsWon: state.legs_won[index] ?? 0,
-    isWinner: team.id === state.winner_team_id,
+    // Never in practice: the one team finished, it did not win (#68).
+    isWinner: !isSingleSided(state) && team.id === state.winner_team_id,
   }))
 }
 

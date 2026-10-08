@@ -9,7 +9,7 @@
  * arithmetic all happened on the server.
  */
 import { describe, expect, it } from 'vitest'
-import { leg, matchState, pairTeams, visit } from './statefixture'
+import { leg, matchState, pairTeams, practiceTeams, visit } from './statefixture'
 import { bustOf, cardLabel, checkoutText, contextLine, teamCards, visitTotal } from './x01'
 
 describe('the bust banner', () => {
@@ -154,5 +154,22 @@ describe('a payload that does not line up', () => {
     // so the context line says "cricket" rather than "undefined".
     const state = matchState({ gameType: 'cricket', legIndex: 0, bestOf: 1 })
     expect(contextLine(state, state.current_leg)).toBe('cricket · Leg 1 · Best of 1')
+  })
+})
+
+describe('a practice match (#68)', () => {
+  it('finishes a leg rather than winning it', () => {
+    const done = leg({ checkoutReason: 'leg_complete', teams: practiceTeams() }).checkout
+    expect(checkoutText(done, true)).toBe('Leg finished')
+    // Paths still win over the reason, alone or not.
+    expect(checkoutText(leg({ checkoutPaths: [['D20']] }).checkout, true)).toBe('D20')
+  })
+
+  it('draws one card and reads its legs as finished', () => {
+    const state = matchState({ teams: practiceTeams(), legsWon: [1], remaining: [301, 0] })
+    const cards = teamCards(state, state.current_leg)
+
+    expect(cards).toHaveLength(1)
+    expect(cardLabel(cards[0]!, true)).toBe('Jack, 301 remaining, 1 leg finished, throwing now')
   })
 })

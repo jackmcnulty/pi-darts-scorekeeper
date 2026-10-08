@@ -27,7 +27,13 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { MatchState } from '../api/play'
 import { CRICKET_TARGETS, type Variant } from '../play/cricket'
 import { dartFor, NUMBER_KEYS, type DartWrite } from '../play/keypad'
-import { matchState, pairTeams, visit, type MatchStateOptions } from '../play/statefixture'
+import {
+  matchState,
+  pairTeams,
+  practiceTeams,
+  visit,
+  type MatchStateOptions,
+} from '../play/statefixture'
 import '../styles/global.css'
 import { installServer, renderApp, server } from '../test-harness'
 
@@ -584,5 +590,39 @@ describe('signalling a change', () => {
     for (const found of within(table).getAllByRole('cell')) {
       expect(found).toHaveAttribute('data-closing', 'false')
     }
+  })
+})
+
+describe('a practice match: one team (#68)', () => {
+  function practice(options: MatchStateOptions = {}): MatchState {
+    return cricket({ teams: practiceTeams(), legsWon: [0], ...options })
+  }
+
+  it('draws one column beside the spine, with no points', async () => {
+    current = practice({ marks: [{ 20: 3, 19: 1 }, {}] })
+    const { container } = renderApp('/play/42')
+    const table = await board()
+
+    expect(container.querySelector('.cricket--single-sided')).not.toBeNull()
+    for (const row of within(table).getAllByRole('row')) {
+      expect(within(row).getAllByRole('cell')).toHaveLength(1)
+      expect(within(row).getByRole('rowheader')).toHaveStyle({ gridColumn: '1' })
+      expect(within(row).getByRole('cell')).toHaveStyle({ gridColumn: '2' })
+    }
+    // Standard cricket, and still no points: nothing can score alone.
+    expect(screen.getByLabelText('Jack, 0 legs finished, throwing now')).toBeInTheDocument()
+    expect(container.querySelector('.cricket__head-points')).toBeNull()
+  })
+
+  it('gives the grid two columns, spine first', () => {
+    expect(rule('.cricket--single-sided', css())).toMatch(/grid-template-columns:\s*56px 1fr/)
+  })
+
+  it('says the match was finished, not won', async () => {
+    current = practice({ status: 'complete', winner: 1, legsWon: [1], dartsThrown: 8 })
+    renderApp('/play/42')
+    await board()
+
+    expect(screen.getByRole('status')).toHaveTextContent('Jack finished the match.')
   })
 })

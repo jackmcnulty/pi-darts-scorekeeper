@@ -24,7 +24,7 @@ import { http, HttpResponse } from 'msw'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MatchState } from '../api/play'
 import { ALL_KEYS, dartFor, keyLabel, MULTIPLIERS, type DartWrite } from '../play/keypad'
-import { leg, matchState, pairTeams, visit } from '../play/statefixture'
+import { leg, matchState, pairTeams, practiceTeams, visit } from '../play/statefixture'
 import '../styles/global.css'
 import { installServer, renderApp, server } from '../test-harness'
 
@@ -797,5 +797,42 @@ describe('the frame', () => {
       const rule = new RegExp(`\\.play${row} \\{([^}]*)\\}`).exec(play)?.[1] ?? ''
       expect(rule, `.play${row} must not stretch`).toMatch(/flex:\s*none/)
     }
+  })
+})
+
+describe('a practice match: one team (#68)', () => {
+  it('draws one score card and plays on', async () => {
+    current = matchState({ teams: practiceTeams(), legsWon: [0], remaining: [301, 0] })
+    responses = [current]
+    renderApp('/play/42')
+    await board()
+
+    expect(
+      screen.getByLabelText('Jack, 301 remaining, 0 legs finished, throwing now'),
+    ).toBeVisible()
+    expect(screen.queryByLabelText(/^Dad/)).not.toBeInTheDocument()
+    await userEvent.click(pressKey('20, single'))
+    await waitFor(() => {
+      expect(posted).toHaveLength(1)
+    })
+  })
+
+  it('says the match was finished, not won', async () => {
+    current = matchState({
+      teams: practiceTeams(),
+      status: 'complete',
+      winner: 1,
+      winnerTeamId: 1,
+      legsWon: [1],
+      dartsThrown: 6,
+      thrower: null,
+      checkoutReason: 'leg_complete',
+    })
+    renderApp('/play/42')
+    await board()
+
+    expect(screen.getByRole('status')).toHaveTextContent('Jack finished the match')
+    expect(screen.getByText('Leg finished')).toBeInTheDocument()
+    expect(screen.queryByText(/won/)).not.toBeInTheDocument()
   })
 })

@@ -759,9 +759,11 @@ Match create takes `{"config": {...}, "teams": [{"player_ids": [1], "name": null
 {"player_ids": [2]}]}` and returns full detail with 201. `GameConfig` is nested in
 the request, so FastAPI rejects invalid configuration before endpoint execution.
 Its field validators preserve locations such as `body.config.out_rule`, including
-missing game-specific fields and odd `best_of`. API team validation requires two
-teams, nonempty membership, distinct positive player IDs, and a starting-team index
-within range. The repository retains one-team support. Unknown players produce 404;
+missing game-specific fields and odd `best_of`. API team validation requires at
+least one team (two until #68, which made one team a practice match — see *Match
+setup screen (#23)*), nonempty membership, distinct positive player IDs, and a
+starting-team index within range, so "team 1 starts" with one team is a 422 on
+`teams`. Unknown players produce 404;
 archived players produce the existing `invalid_match` domain 422.
 
 `GET /api/matches` returns `{items, total, limit, offset}`. `limit` defaults to 50
@@ -874,10 +876,23 @@ have no window; widening the base would have added a parameter to `/api/export`
 that nothing there implements. The two windowed endpoints echo a
 `WindowedFilterResponse` and the other two still echo `FilterResponse`.
 
+**A single-sided match is never won, nor played; its darts count** (#68). A
+practice match has one team. It adds nothing to `legs_won` / `matches_won` or to
+`legs_played` / `matches_played`, on any of the three reads, and its per-leg lines
+are never `won`. Its darts are real darts, so they feed every scoring metric, the
+leaderboard included. Both halves are Jack's decisions on #68. The views enforce
+them (`views.sql`: `single_sided`, and `won` is 0), and `results.sql` drops those
+matches from "played"; see [data-model.md](data-model.md#views). A player report
+also carries `single_sided_matches`, the practice matches in scope, for the reason
+in the next paragraph.
+
 The echo reports the window *asked for*, not the one found: a request for ten
 matches from a player who has played six echoes ten, while `matches_played` on the
 same response says six. A screen labels its column from the latter, because "last
-6 matches" is true where "last 10 matches" over six is not. The window is refused
+6 matches" is true where "last 10 matches" over six is not. Since #68 the window
+also reaches back over practice matches, whose darts are in the figures but never in
+`matches_played`, so the label is `matches_played + single_sided_matches`: six duels
+and four practice matches are "last 10 matches", not "last 6". The window is refused
 on `/matches/{id}` — that report is already one match, so there is no window to
 choose, and `extra="forbid"` makes asking a 422 rather than a parameter that looks
 accepted and quietly does nothing.
@@ -1133,8 +1148,8 @@ leg: on 201 it navigates to `/play/:matchId` and #24 takes over.
 be rules somebody has to remember:
 
 - **The start button and the payload are one decision.** `buildMatch` returns
-  `null` exactly when the state is not startable, which *is* #23's "at least 2
-  teams and every team has at least 1 player". The button is disabled when it
+  `null` exactly when the state is not startable, which *is* "at least 1 team
+  and every team has at least 1 player" (#23's "at least 2" until #68). The button is disabled when it
   returns `null` and posts what it returns otherwise, so the two cannot
   disagree about whether this is a match.
 - **Changing the game type keeps the teams**, because the `game` action copies
@@ -1142,7 +1157,7 @@ be rules somebody has to remember:
   something each screen has to be careful about.
 - **The enumeration is possible at all.** `config.test.ts` walks every
   reachable state — 6 games × 3 in-rules × 3 out-rules × 5 leg counts × 5
-  starters × 7 team shapes, 9,450 in all since #59 — and checks each body
+  starters × 10 team shapes, 13,500 in all since #68 — and checks each body
   against the rules transcribed from `repo/config.py` and `api/matches.py`.
 
 It is a `.ts` and not part of `Setup.tsx` because
@@ -1266,6 +1281,56 @@ Both fields are sent explicitly rather than omitted. The served schema's
 generated type demands them. Sending them typechecks, is valid, and is honest
 about what the match is. The generator is not the thing to fix.
 
+#### One side is a practice match (#68)
+
+A match with one team is practice: a solo 501 against the clock, or any cricket.
+Jack decided on #68 that both game types can be played this way and that it is
+**never a win**: see *Statistics API (#19)* for what the stats do with it.
+
+**The name is "single-sided", and it is not `is_solo`.** `teams.is_solo` is
+older and means a team with one *member*. Every 1v1 has two `is_solo` teams and
+is not single-sided, and a pair practising together is single-sided with no
+`is_solo` team. Nothing stores "single-sided": it is the team count, derived on
+the server in `views.sql` and on the client in `matches/sides.ts`, so no
+migration carries it and no row can disagree with its own teams.
+
+**The engine needed no change.** Cricket's opponent rules are `all(...)` over
+the opponents, so with none they hold vacuously: every target is dead from the
+first dart and closing all seven wins in every variant. Solo cricket is
+therefore closing out only, under standard and cut-throat as under quick, and a
+solo x01 leg ends at checkout. `rotation.starting_team` already had a one-team
+branch. `tests/engine/test_one_team.py` pins all of it down. The finisher is
+still written to `winner_team_id`, which keeps checkout detection and #22's
+verify unchanged, and in a single-sided match that column means "finished".
+
+**The tap model is unchanged.** The first tap still lands on A and the second on
+B, so one tap is a practice match and two make it one against one. #23's six-tap
+2v2 is still six taps. Everyone moved on to one side is practice for all of
+them, and a lone side B posts as `teams[0]`.
+
+**Who starts: the row stays, and the empty side's chip is disabled** (Jack,
+#68, reopening #59's "always show"). With one team, Alternate, Loser starts,
+Winner starts and the populated side's chip all mean the same thing, and the
+empty side's chip names a team that is not in the match: the server refuses it
+with a 422. Hiding the row would move the Start button as the second player was
+tapped on. So all five chips stay put (measured at 402×781 in a real browser,
+not on the device: the rows sit at the same offsets and nothing scrolls
+sideways). The empty side's chip is disabled, and a choice already on it falls
+back to Alternate. `effectiveStarter` derives that rather than writing it into
+the state, so tapping a second player on brings the original choice back. With
+one side, `buildMatch` always sends `fixed_team: 0`.
+
+**The boards are one full-width tile.** x01's cards already stack, so one team
+is one card across the width. Cricket moves the target spine to the left and
+gives the one column the rest (`56px 1fr`), with no points column, since
+nothing can score. Everywhere a finish is named — the board's end notice, both
+sheets, the match detail — a practice leg or match is "finished", never "won",
+and the sheet's tally marks nobody as the winner. A number closed in practice
+draws in the "dead" style, because with nobody else at the board it is dead.
+Measured at 402×781 in a real browser, not on the device: the x01 card is
+378px wide, the cricket spine 56px with a 318px column, the smallest key 56px
+on both boards, and neither page scrolls.
+
 #### A match in progress is a warning, not a wall
 
 Opening `/setup` while something is still being played shows a line naming it
@@ -1295,6 +1360,14 @@ discharge. It was checked two ways during #23, and the second again in #59:
    unknown `start_rule`. One 1v1 per starter per game type (ten) was posted
    through a live `TestClient`: all came back 201 with the config echoed, and
    leg 1's `starting_team_id` was Team B only under Team B starts.
+
+4. #68 repeated (2) with three practice shapes added: alone on A, alone on B
+   with A emptied, and a pair on A. All 13,500 bodies were accepted, 4,050 of
+   them one-team. With one team, `fixed` only ever went out as `fixed_team: 0`,
+   and Alternate occurred twice as often because the empty side's chip falls
+   back to it. A one-team body naming `fixed_team: 1` was rejected on `teams`.
+   `tests/api/test_single_sided_api.py` plays a one-team match of every game
+   type to the end over HTTP.
 
 The second is a development-time measurement rather than a committed test,
 because a committed one would mean a backend test file for a frontend ticket.
@@ -1860,7 +1933,7 @@ and no `NaN` appeared. Verified in a real browser, not on the device; it joins
 
 ## End-to-end tests (#32)
 
-Two Playwright specs drive the app through the UI, in WebKit as an iPhone 17
+Four Playwright specs drive the app through the UI, in WebKit as an iPhone 17
 Pro, against the real image on a throwaway database. Playwright launches a
 browser engine and clicks through pages the way a person does; WebKit is the
 engine inside Safari. They live in `frontend/e2e/` and run as CI's `e2e` job.
@@ -1890,6 +1963,13 @@ players would join the first run's.
 - **Cricket** plays one cut-throat leg in which each player's surplus marks score
   in the *other* column, asserted dart by dart, and the fewer-points player
   closes out and wins.
+- **practice** (#68) plays a one-player 501, first to two, to the end: one
+  tile, "finished" on both sheets and nowhere "won", then Pip's card with all
+  18 darts and the 167.00 average counted, and "Legs won 0 of 0", "Matches won
+  0 of 0". Eighteen darts keeps Pip under `DEFAULT_MIN_DARTS`, so x01's exact
+  leaderboard holds although this file runs first. The card is reached by id,
+  read from the match with a GET: the leaderboard is the only link to a card,
+  and Pip is rightly not on it.
 - **image** checks `/api/version` reports the commit CI built, so the run is
   provably against that image and not something else on the port.
 
@@ -1908,7 +1988,7 @@ run.
 authoritative, so a spec that fails and then passes on a second attempt is a
 double submit or an ordering bug, and a retry would hide it.
 
-**One worker, serial.** Both specs share a database and spec 1 asserts on the
+**One worker, serial.** The specs share a database and spec 1 asserts on the
 leaderboard, which is everybody.
 
 **The viewport is 402×874, not the preset's 402×681.** Playwright's

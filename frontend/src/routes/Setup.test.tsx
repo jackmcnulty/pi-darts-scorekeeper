@@ -174,7 +174,7 @@ describe('control visibility', () => {
 })
 
 describe('the start button', () => {
-  it('is disabled until both teams have a player', async () => {
+  it('is disabled until somebody is playing', async () => {
     const user = userEvent.setup()
     renderApp('/setup')
     await rosterList()
@@ -182,15 +182,22 @@ describe('the start button', () => {
     const start = screen.getByRole('button', { name: 'Start match' })
     expect(start).toBeDisabled()
 
+    // One player is a practice match since #68, so one tap is enough.
     await user.click(row('Jack'))
-    expect(start).toBeDisabled()
+    expect(start).toBeEnabled()
 
     await user.click(row('Dad'))
     expect(start).toBeEnabled()
 
-    // Moving Dad across leaves Team B empty, and the button goes back.
+    // Moving Dad across leaves Team B empty: a practice match for two.
     await user.click(row('Dad'))
     expect(row('Dad')).toHaveAccessibleName('Dad, Team A')
+    expect(start).toBeEnabled()
+
+    // Jack to B and off, Dad off: nobody is left, and the button goes back.
+    await user.click(row('Jack'))
+    await user.click(row('Jack'))
+    await user.click(row('Dad'))
     expect(start).toBeDisabled()
   })
 
@@ -588,5 +595,86 @@ describe('the roster', () => {
     await userEvent.setup().click(retry)
 
     expect(await rosterList()).toBeInTheDocument()
+  })
+})
+
+describe('a practice match: one side (#68)', () => {
+  it('says one tap is practice', async () => {
+    renderApp('/setup')
+    await rosterList()
+
+    expect(
+      screen.getByText(/one tap is a practice match, two make it one against one/),
+    ).toBeInTheDocument()
+  })
+
+  it('starts with one player and posts one team', async () => {
+    const user = userEvent.setup()
+    renderApp('/setup')
+    await rosterList()
+
+    await user.click(row('Jack'))
+    await user.click(screen.getByRole('button', { name: 'Start match' }))
+
+    await waitFor(() => {
+      expect(posted).toHaveLength(1)
+    })
+    expect(posted[0]).toEqual({
+      config: {
+        game_type: 'x01',
+        start_score: 501,
+        in_rule: 'straight',
+        out_rule: 'straight',
+        best_of: 1,
+        start_rule: 'alternate',
+        fixed_team: 0,
+      },
+      teams: [{ player_ids: [1] }],
+    })
+  })
+
+  it('disables Team B starts while B is empty, and keeps the row in place', async () => {
+    const user = userEvent.setup()
+    renderApp('/setup')
+    await rosterList()
+
+    const starter = screen.getByRole('group', { name: 'Who starts each leg' })
+    const teamB = within(starter).getByRole('button', { name: 'Team B starts' })
+    // Nobody picked yet: nothing is ruled out.
+    expect(teamB).toBeEnabled()
+    await user.click(teamB)
+
+    await user.click(row('Jack'))
+    expect(teamB).toBeDisabled()
+    // Still all five chips, in the same order (#59), with the choice moved to
+    // Alternate -- which with one team means the same as every other.
+    expect(within(starter).getAllByRole('button')).toHaveLength(5)
+    expect(within(starter).getByRole('button', { name: 'Alternate' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(teamB).toHaveAttribute('aria-pressed', 'false')
+
+    // A second side brings the choice back as it was.
+    await user.click(row('Dad'))
+    expect(teamB).toBeEnabled()
+    expect(teamB).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('never posts Team B starts for one team, which the server refuses', async () => {
+    const user = userEvent.setup()
+    renderApp('/setup')
+    await rosterList()
+
+    const starter = screen.getByRole('group', { name: 'Who starts each leg' })
+    await user.click(within(starter).getByRole('button', { name: 'Team B starts' }))
+    await user.click(row('Jack'))
+    await user.click(screen.getByRole('button', { name: 'Start match' }))
+
+    await waitFor(() => {
+      expect(posted).toHaveLength(1)
+    })
+    expect(posted[0]?.config).toMatchObject({ start_rule: 'alternate', fixed_team: 0 })
+    expect(posted[0]?.teams).toHaveLength(1)
   })
 })

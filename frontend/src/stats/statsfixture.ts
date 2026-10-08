@@ -187,6 +187,8 @@ export interface PlayerOptions {
   legsWon?: number
   matchesPlayed?: number
   matchesWon?: number
+  /** #68's practice matches, in none of the four tallies above. */
+  singleSidedMatches?: number
   x01?: X01Stats
   cricket?: CricketStats
   segments?: Segment[]
@@ -203,6 +205,7 @@ export function playerStats(options: PlayerOptions = {}): PlayerStats {
     legs_won: options.legsWon ?? 21,
     matches_played: options.matchesPlayed ?? 14,
     matches_won: options.matchesWon ?? 8,
+    single_sided_matches: options.singleSidedMatches ?? 0,
     x01: options.x01 ?? x01(),
     cricket: options.cricket ?? cricket(),
     segments: options.segments ?? segments(),

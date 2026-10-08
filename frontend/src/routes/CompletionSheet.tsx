@@ -38,11 +38,11 @@ import {
   finishingVisit,
   legLines,
   matchLines,
+  outcomeLine,
   playerLineLabel,
   sheetDue,
   sheetKey,
   tally,
-  winnerName,
   type LegSheet,
   type PlayerLine,
 } from '../play/sheet'
@@ -87,7 +87,7 @@ function MatchBody({ match, onClose }: { match: MatchState; onClose: () => void 
             so opening it is already announced; a live region inside it would say
             the same thing a second time, on top of the board's own end-of-match
             notice behind it. */}
-        <p className="csheet__winner">{winnerName(match, match.winner_team_id)} won the match</p>
+        <p className="csheet__winner">{outcomeLine(match, match.winner_team_id, 'match')}</p>
 
         <ul className="csheet__tally">
           {lines.map((line) => (
@@ -135,7 +135,7 @@ function LegBody({
       {/* See `MatchBody` for why the sections are wrapped. */}
       <div className="csheet">
         {/* No `role="status"`, for the reason given on the match sheet above. */}
-        <p className="csheet__winner">{winnerName(match, due.leg.winner_team_id)} won the leg</p>
+        <p className="csheet__winner">{outcomeLine(match, due.leg.winner_team_id, 'leg')}</p>
 
         {darts.length > 0 && (
           <div className="csheet__checkout" aria-label={`Checkout, ${darts.join(', ')}`}>

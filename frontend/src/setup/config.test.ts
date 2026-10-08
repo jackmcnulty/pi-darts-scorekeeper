@@ -6,7 +6,8 @@
  * discharge -- it is a statement about all of them. So the second half of this
  * file enumerates every state the screen can reach (six games, every in-rule
  * and out-rule the reducer accepts, every leg count, all five starters, and a
- * set of team shapes covering solo, even and uneven) and checks each built
+ * set of team shapes covering 1v1, even, uneven and #68's one-sided practice
+ * match) and checks each built
  * body against the rules the server actually enforces, transcribed from
  * `repo/config.py` and `api/matches.py::validate_composition`.
  *
@@ -30,6 +31,8 @@ import { describe, expect, it } from 'vitest'
 import type { components } from '../api/schema'
 import {
   buildMatch,
+  effectiveStarter,
+  emptySide,
   GAME_OPTIONS,
   INITIAL_STATE,
   isX01,
@@ -37,6 +40,7 @@ import {
   membersOf,
   MIN_LEGS,
   reduce,
+  sidesOf,
   STARTER_OPTIONS,
   teamOf,
   type GameId,
@@ -185,16 +189,61 @@ describe('buildMatch refuses what the server would', () => {
     expect(buildMatch(INITIAL_STATE)).toBeNull()
   })
 
-  it('returns null with one player, who is one team', () => {
-    expect(buildMatch(tap(INITIAL_STATE, 1))).toBeNull()
+  it('returns null when everyone has sat out again', () => {
+    expect(buildMatch(tap(INITIAL_STATE, 1, 1, 1))).toBeNull()
+  })
+})
+
+describe('a practice match: one side (#68)', () => {
+  it('posts one player as one team', () => {
+    expect(buildMatch(tap(INITIAL_STATE, 1))?.teams).toEqual([{ player_ids: [1] }])
   })
 
-  it('returns null when everyone has been moved onto one team', () => {
-    // 1 -> A, 2 -> B, then 2 swaps to A. Two players, one empty team.
+  it('posts everyone moved onto one side as one team of them all', () => {
+    // 1 -> A, 2 -> B, then 2 swaps to A. Two players, one empty side.
     const lopsided = tap(INITIAL_STATE, 1, 2, 2)
 
     expect(membersOf(lopsided, 'B')).toHaveLength(0)
-    expect(buildMatch(lopsided)).toBeNull()
+    expect(buildMatch(lopsided)?.teams).toEqual([{ player_ids: [1, 2] }])
+  })
+
+  it('posts a lone side B as the only team, index 0', () => {
+    // 1 -> A, 2 -> B, then 1 goes A -> B -> off. Only B is left.
+    const onB = reduce(tap(INITIAL_STATE, 1, 2, 1, 1), { type: 'starter', starter: 'fixed-B' })
+
+    expect(sidesOf(onB)).toEqual(['B'])
+    expect(buildMatch(onB)).toMatchObject({
+      config: { start_rule: 'fixed', fixed_team: 0 },
+      teams: [{ player_ids: [2] }],
+    })
+  })
+
+  it('names the empty side only while the other has players', () => {
+    expect(emptySide(INITIAL_STATE)).toBeNull()
+    expect(emptySide(tap(INITIAL_STATE, 1))).toBe('B')
+    expect(emptySide(tap(INITIAL_STATE, 1, 2))).toBeNull()
+    expect(emptySide(tap(INITIAL_STATE, 1, 2, 1, 1))).toBe('A')
+  })
+
+  it('falls back to Alternate from the empty side, and gives the choice back', () => {
+    const chosen = reduce(INITIAL_STATE, { type: 'starter', starter: 'fixed-B' })
+    // Nobody tapped yet: nothing to fall back from.
+    expect(effectiveStarter(chosen)).toBe('fixed-B')
+
+    const alone = tap(chosen, 1)
+    expect(effectiveStarter(alone)).toBe('alternate')
+    expect(buildMatch(alone)?.config).toMatchObject({ start_rule: 'alternate', fixed_team: 0 })
+
+    const pair = tap(alone, 2)
+    expect(effectiveStarter(pair)).toBe('fixed-B')
+    expect(buildMatch(pair)?.config).toMatchObject({ start_rule: 'fixed', fixed_team: 1 })
+  })
+
+  it('keeps Team A starts for a lone side A, as the only team', () => {
+    const state = tap(reduce(INITIAL_STATE, { type: 'starter', starter: 'fixed-A' }), 1)
+
+    expect(effectiveStarter(state)).toBe('fixed-A')
+    expect(buildMatch(state)?.config).toMatchObject({ start_rule: 'fixed', fixed_team: 0 })
   })
 })
 
@@ -325,6 +374,10 @@ const TEAM_SHAPES: readonly { name: string; taps: number[] }[] = [
   { name: '2v3 by moving one across', taps: [1, 2, 3, 4, 5, 5] },
   { name: '1v3 by moving one across', taps: [1, 2, 3, 4, 3] },
   { name: 'a rejoin after dropping out', taps: [1, 2, 3, 3, 3, 4, 3] },
+  // #68's practice match, on either letter and with more than one player.
+  { name: 'practice alone on A', taps: [1] },
+  { name: 'practice alone on B, A emptied', taps: [1, 2, 1, 1] },
+  { name: 'practice as a pair on A', taps: [1, 2, 2] },
 ]
 
 /** Exactly the rules `repo/config.py` and `api/matches.py` enforce. */
@@ -353,9 +406,10 @@ function assertServerWouldAccept(body: MatchWrite): void {
 
   expect(START_RULES).toContain(config.start_rule)
 
-  // api/matches.py: MatchWrite needs two teams, TeamWrite needs a player,
-  // validate_composition needs unique ids and a fixed_team that names a team.
-  expect(teams.length).toBeGreaterThanOrEqual(2)
+  // api/matches.py: MatchWrite needs a team (one is a practice match since
+  // #68), TeamWrite needs a player, validate_composition needs unique ids and a
+  // fixed_team that names a team -- which with one team means 0.
+  expect(teams.length).toBeGreaterThanOrEqual(1)
   for (const team of teams) {
     expect(team.player_ids.length).toBeGreaterThanOrEqual(1)
     expect(team.player_ids.every((id) => Number.isInteger(id) && id > 0)).toBe(true)

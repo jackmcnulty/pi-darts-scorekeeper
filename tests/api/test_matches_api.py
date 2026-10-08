@@ -77,7 +77,6 @@ def test_config_validation_matrix(
     ("teams", "loc"),
     [
         ([], ["teams"]),
-        ([{"player_ids": [1]}], ["teams"]),
         ([{"player_ids": []}, {"player_ids": [2]}], ["teams", 0, "player_ids"]),
         ([{"player_ids": [0]}, {"player_ids": [2]}], ["teams", 0, "player_ids", 0]),
         ([{"player_ids": [1]}, {"player_ids": [1]}], ["teams"]),

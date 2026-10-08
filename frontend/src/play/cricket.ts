@@ -21,6 +21,7 @@
  */
 import type { LegState, MatchState, TeamLeg } from '../api/play'
 import type { components } from '../api/schema'
+import { isSingleSided, legsText } from '../matches/sides'
 
 /** Which cricket is being played. The only setting a cricket leg has. */
 export type Variant = components['schemas']['Variant']
@@ -121,6 +122,28 @@ export interface BoardView {
   rows: BoardRow[]
   /** Whether the points totals are worth showing at all. See `showsPoints`. */
   showsPoints: boolean
+  /**
+   * One team, practice (#68). The board draws one column beside the spine
+   * rather than two around it, and shows no points: the engine has nobody to
+   * score against, so every total is zero all leg -- the same reason `quick`
+   * hides them. See `gridColumns` and `matches/sides.ts`.
+   */
+  singleSided: boolean
+}
+
+/**
+ * Where the spine and each team's column sit in the board's grid.
+ *
+ * Two teams put the spine down the middle, as #4 drew it: columns 1, 2, 3.
+ * One team (#68) puts it on the left and gives the team the rest of the width:
+ * `56px 1fr` in `CricketBoard.css`, spine in 1 and the team in 2. Placed rather
+ * than ordered for the reason `CricketBoard.tsx` gives on the header.
+ */
+export function gridColumns(singleSided: boolean): {
+  spine: number
+  team: (index: number) => number
+} {
+  return singleSided ? { spine: 1, team: () => 2 } : { spine: 2, team: (index) => index * 2 + 1 }
 }
 
 /**
@@ -176,7 +199,9 @@ function marksOn(team: TeamLeg, target: number): number {
  * somebody is still open to score against; for two teams the two questions
  * coincide, and for three they do not. Nothing here feeds a rule -- the engine
  * has already decided what every dart was worth -- so this is the presentation
- * question only: is this number finished for everybody at the board.
+ * question only: is this number finished for everybody at the board. With one
+ * team (#68) that is the moment the team closes it, which is also the engine's
+ * answer: with nobody to score against, every target is dead.
  */
 function rowIsDead(teams: readonly TeamLeg[], target: number): boolean {
   return teams.length > 0 && teams.every((team) => marksOn(team, target) >= MARKS_TO_CLOSE)
@@ -261,19 +286,21 @@ export function boardView(state: MatchState, leg: LegState): BoardView {
     }
   })
 
+  const singleSided = isSingleSided(state)
   return {
     columns,
     rows,
-    showsPoints: showsPoints(variantOf(state.config)),
+    showsPoints: !singleSided && showsPoints(variantOf(state.config)),
+    singleSided,
   }
 }
 
 /** How a column's heading reads aloud, name and points run together otherwise. */
-export function columnLabel(column: BoardColumn, withPoints: boolean): string {
+export function columnLabel(column: BoardColumn, withPoints: boolean, singleSided = false): string {
   const parts = [column.name]
   if (column.teammates !== undefined) parts.push(`with ${column.teammates}`)
   if (withPoints) parts.push(`${String(column.points)} points`)
-  parts.push(`${String(column.legsWon)} ${column.legsWon === 1 ? 'leg' : 'legs'} won`)
+  parts.push(legsText(column.legsWon, singleSided))
   if (column.active) parts.push('throwing now')
   return parts.join(', ')
 }

@@ -19,6 +19,7 @@
  */
 import type { components } from '../api/schema'
 import type { Checkout, LegState, MatchState, Visit } from '../api/play'
+import { legsText } from '../matches/sides'
 
 type NoHintsReason = components['schemas']['NoHintsReason']
 
@@ -67,9 +68,11 @@ const NO_HINT_TEXT: Record<NoHintsReason, string> = {
  * "updates after every dart and respects both" criterion is discharged by
  * rendering whatever the latest response carried.
  */
-export function checkoutText(checkout: Checkout): string {
+export function checkoutText(checkout: Checkout, singleSided = false): string {
   const best = checkout.paths[0]
   if (best !== undefined) return best.join(' ')
+  // #68: a practice leg is finished, never won. See `matches/sides.ts`.
+  if (checkout.reason === 'leg_complete' && singleSided) return 'Leg finished'
   return checkout.reason === null ? '—' : NO_HINT_TEXT[checkout.reason]
 }
 
@@ -134,13 +137,14 @@ export function teamCards(state: MatchState, leg: LegState): TeamCard[] {
  *
  * `ScoreCard` stacks name, score and meta as adjacent spans, which a screen
  * reader runs together -- "Jack134Legs 1". Spelled out for the same reason
- * `Setup.tsx` spells out its player rows.
+ * `Setup.tsx` spells out its player rows. A practice match's legs are
+ * "finished" rather than "won" (#68, `matches/sides.ts`).
  */
-export function cardLabel(card: TeamCard): string {
+export function cardLabel(card: TeamCard, singleSided = false): string {
   const parts = [card.name]
   if (card.teammates !== undefined) parts.push(`with ${card.teammates}`)
   if (card.score !== null) parts.push(`${String(card.score)} remaining`)
-  parts.push(`${String(card.legsWon)} ${card.legsWon === 1 ? 'leg' : 'legs'} won`)
+  parts.push(legsText(card.legsWon, singleSided))
   if (card.active) parts.push('throwing now')
   return parts.join(', ')
 }
