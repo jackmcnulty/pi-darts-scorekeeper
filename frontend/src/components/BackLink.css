@@ -1,0 +1,26 @@
+/*
+ * Setup's ‹ from #23, which Jack picked over the play frame's in #70: a large
+ * glyph in the text colour, readable at arm's length from the board.
+ *
+ * `min-` rather than fixed sizes, so the box can grow with the glyph but never
+ * fall under the 56px touch floor. `BackLink.test.tsx` parses this file as
+ * text, because jsdom does no layout and cannot measure the box itself.
+ */
+.back-link {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  /* A back chevron is small; its target is not. */
+  min-width: var(--touch-min);
+  min-height: var(--touch-min);
+  border-radius: var(--radius-full);
+  color: var(--color-text);
+  font-size: var(--text-2xl);
+  line-height: 1;
+  text-decoration: none;
+}
+
+.back-link:active {
+  background: var(--color-surface-pressed);
+}

@@ -18,10 +18,11 @@
  * would be wrong.
  */
 import { QueryClientProvider } from '@tanstack/react-query'
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { MemoryRouter } from 'react-router'
-import { afterAll, afterEach, beforeAll } from 'vitest'
+import { afterAll, afterEach, beforeAll, expect } from 'vitest'
 import { ConnectionMonitor } from './api/connection'
 import { createQueryClient } from './api/queryClient'
 import App from './App'
@@ -61,4 +62,43 @@ export function renderApp(path: string) {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+}
+
+/**
+ * #70's way out of a screen: the ‹ named `name`, leading to `href`, on the floor.
+ *
+ * One helper so every screen's test asserts the same three things. The size is
+ * the declared minimum read off the cascade, the same indirection
+ * `Home.test.tsx` follows by hand: jsdom does no layout, so a bounding box is
+ * zero and the real 56px is measured in a browser instead.
+ */
+export async function expectBackLink(name: string, href: string): Promise<HTMLElement> {
+  const link = await screen.findByRole('link', { name })
+  expect(link).toHaveAttribute('href', href)
+  expect(link).toHaveTextContent('‹')
+  const style = getComputedStyle(link)
+  expect(style.getPropertyValue('min-width').trim()).toBe('var(--touch-min)')
+  expect(style.getPropertyValue('min-height').trim()).toBe('var(--touch-min)')
+  return link
+}
+
+/**
+ * An empty `GET /api/matches`, whatever it was asked: what both home (asking for
+ * a match in progress) and the history (asking for a page) read, so a test that
+ * follows a ‹ onto either has something to land on.
+ */
+export function servesNoMatches(): void {
+  server.use(
+    http.get('*/api/matches', ({ request }) => {
+      const query = new URL(request.url).searchParams
+      const limit = Number(query.get('limit') ?? '20')
+      const offset = Number(query.get('offset') ?? '0')
+      return HttpResponse.json({ items: [], total: 0, limit, offset })
+    }),
+  )
+}
+
+/** Home is on screen: its heading, which no other screen uses. */
+export async function expectHome(): Promise<void> {
+  expect(await screen.findByRole('heading', { level: 1, name: 'Darts' })).toBeInTheDocument()
 }

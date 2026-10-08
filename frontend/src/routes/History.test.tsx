@@ -15,7 +15,14 @@ import type { Match } from '../api/matches'
 // `main.tsx` is what imports this in the app, and it is not in the tree here.
 // Without it `--touch-min` is undeclared and any floor assertion is vacuous.
 import '../styles/global.css'
-import { installServer, renderApp, server } from '../test-harness'
+import {
+  expectBackLink,
+  expectHome,
+  installServer,
+  renderApp,
+  server,
+  servesNoMatches,
+} from '../test-harness'
 import { match } from '../matches/historyfixture'
 
 installServer()
@@ -218,7 +225,27 @@ describe('criterion 6: an abandoned match is visibly distinguished', () => {
   })
 })
 
+describe('the way home (#70)', () => {
+  it('has a ‹ to home, which is one tap', async () => {
+    servesNoMatches()
+    renderApp('/history')
+
+    await userEvent.click(await expectBackLink('Back to home', '/'))
+    await expectHome()
+  })
+})
+
 describe('when the Pi cannot be reached', () => {
+  it('keeps the ‹ home while the history will not load', async () => {
+    server.use(
+      http.get('*/api/matches', () => HttpResponse.json({ detail: 'nope' }, { status: 500 })),
+    )
+    renderApp('/history')
+
+    await screen.findByRole('alert', {}, { timeout: 5000 })
+    await expectBackLink('Back to home', '/')
+  })
+
   it('reports the failure and offers a retry that works', async () => {
     server.use(
       http.get('*/api/matches', () => HttpResponse.json({ detail: 'nope' }, { status: 500 })),

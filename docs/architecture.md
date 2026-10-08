@@ -321,6 +321,42 @@ needs to reach the edge undoes it locally with a negative margin of the same
 token — deliberately an escape hatch and not a prop, which would invite every
 screen to have an opinion about the notch.
 
+#### Every screen has a way up (#70)
+
+Installed to the home screen there is no browser chrome and no back gesture, so
+a screen without its own link is a dead end — found in #32's device pass. Every
+screen except home now carries the same ‹, `components/BackLink`, leading one
+level up: `/players`, `/history`, `/stats`, `/setup` and `/play/:id` to home;
+`/history/:id` to `/history`; `/stats/:id` to `/stats`, carrying the
+leaderboard's query string as #27's text link did. So home is at most two taps
+from anywhere, and the match-complete sheet adds a Home action of its own.
+
+- **One component, Setup's look.** #70 said to reuse "the existing back-link
+  component", which did not exist: #23 and #24 had each hand-copied a ‹ and the
+  copies had drifted — a fixed 56px box with a small grey glyph on the play
+  frame, a *minimum* 56px box with a `--text-2xl` glyph on Setup. Jack chose to
+  extract one, with Setup's look. The box, glyph and floor live in
+  `BackLink.css`; a screen's own class carries only the negative margin into its
+  gutter, and `BackLink.test.tsx` fails if any screen's `__back` rule sets a
+  size, or if a hand-drawn ‹ reappears in a route.
+- **Always a fixed address, never `navigate(-1)`.** A deep link, a reload or a
+  shared URL has no history to go back through.
+- **The label names the destination** — "Back to home", "Back to history",
+  "Back to the leaderboard" — and the old text links ("Back to the history" at
+  the foot of match detail, "← Leaderboard" on the card) were removed rather
+  than left beside it.
+- **Every state, not just success.** Match detail's loading, failed and
+  not-a-match returns are all drawn inside the same frame as the ‹; the other
+  screens render it above their states already. A failed fetch was otherwise
+  exactly the dead end the ticket is about.
+- `NotFound` and the `/style` gallery are not in #70's table and were left
+  alone: the first already links home, the second is #4's approved artefact.
+
+Measured at 402×781 in Chrome against this build on a scratch database: every ‹
+is 56×56 on every screen and in each failure state; play's topbar is still 56px
+with no overflow; and Setup's ‹ is pixel-identical to main's (56×56 at 8,24,
+34px glyph). Verified in a real browser, not on the device.
+
 #### Every PWA asset is asserted into the build
 
 The SPA fallback that makes `/history/42` survive a reload also means a missing
@@ -1135,6 +1171,10 @@ would be wrong.
 `RootLayout` owns the notch and nothing else, so each screen owns its own
 gutter, exactly as `Placeholder.css` has since #21.
 
+`/players` had no way back from #22 until #70 put the shared ‹ at the start of
+its header row (see "Every screen has a way up"); `expectBackLink` in the
+harness is how each screen's test asserts it.
+
 ### Match setup screen (#23)
 
 `/setup` builds a `POST /api/matches` body and nothing else. It never sees a
@@ -1339,6 +1379,9 @@ stops a second match — two `POST /api/matches` both return 201 — and on a
 shared phone at a board, "start another one" is a thing people legitimately do.
 What would be wrong is starting one without saying the first is still open.
 
+Setup's ‹ was the first of the hand-copied back links; #70 extracted it into
+`components/BackLink` and it is unchanged on screen.
+
 #### The payload claim was measured, not just asserted
 
 "The payload posted validates server-side on the first try for every reachable
@@ -1514,6 +1557,9 @@ fit is verified by construction and belongs to #32's device pass.**
 - **A cricket match gets a notice naming #25**, not this board and not a crash.
   `/play/:matchId` serves both game types and #23 will happily start a cricket
   match and navigate here today.
+- **The ‹ in `PlayFrame`** is the shared `components/BackLink` since #70, so it
+  is in every state the frame wraps. The topbar stays a fixed 56px, so the
+  larger glyph cost the board's height budget nothing.
 
 #### The three-dart average came from the server
 
@@ -1812,6 +1858,20 @@ horizontal overflow, nothing clipped, both sheets inside the viewport without
 scrolling, and both sheet actions on the 56px floor. Verified in a real browser,
 not on the device; it joins #32.
 
+#### The match sheet's Home, and the ‹ on detail (#70)
+
+The match-complete sheet gained a Home link. Stacked as a third full-width
+action it fitted a 1v1 sheet (580px of the 664px `85dvh` cap) but pushed a 2v2
+sheet to the cap, scrolling the body 18px with Home partly below the fold. Jack
+chose to pair it with "See every dart" on one row instead: each half is 181px,
+"See every dart" needs 172 with its padding, and the 2v2 sheet is 618px with
+nothing scrolling. Only the match sheet: mid-match, the leg sheet's way home is
+the board's own ‹, one tap after Continue.
+
+Match detail's "Back to the history" link at the foot of the page became the
+shared ‹ at the top, drawn in every state including loading and failure; see
+"Every screen has a way up".
+
 #### Two things this touched outside its own screens
 
 `describeMatch` and `opponents` moved out of `Home.tsx` into
@@ -1965,6 +2025,13 @@ views and the form table. All matched, nothing overflowed the 402px content box,
 and no `NaN` appeared. Verified in a real browser, not on the device; it joins
 #32.
 
+#### Ways back (#70)
+
+Both screens gained the shared ‹: the leaderboard to home, and the card to the
+leaderboard with the query string carried back, as #27's "← Leaderboard" text
+link did — `/stats/1?game_type=x01` returns to the x01 table. The text link is
+gone rather than kept beside it.
+
 ## End-to-end tests (#32)
 
 Four Playwright specs drive the app through the UI, in WebKit as an iPhone 17
@@ -2085,3 +2152,9 @@ person throws that fast; on the phone the cache is stale by then and refetches
 on mount, which at most flashes the old figures. Spec 1 asserts the sheet's
 winner and leg tally and not its averages, and says why. Not fixed here: #32 is
 not a feature ticket. Filed as #72, whose fix should add those assertions.
+
+#### Changed since
+
+#70 renamed the card's way back. Spec 1 followed `'← Leaderboard'`; it now
+follows `'Back to the leaderboard'`, the shared ‹'s accessible name, and still
+proves the same navigation from Ava's card back to the ranking.

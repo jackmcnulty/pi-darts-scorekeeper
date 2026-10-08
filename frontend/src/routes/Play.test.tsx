@@ -26,7 +26,14 @@ import type { MatchState } from '../api/play'
 import { ALL_KEYS, dartFor, keyLabel, MULTIPLIERS, type DartWrite } from '../play/keypad'
 import { leg, matchState, pairTeams, practiceTeams, visit } from '../play/statefixture'
 import '../styles/global.css'
-import { installServer, renderApp, server } from '../test-harness'
+import {
+  expectBackLink,
+  expectHome,
+  installServer,
+  renderApp,
+  server,
+  servesNoMatches,
+} from '../test-harness'
 
 installServer()
 
@@ -851,6 +858,23 @@ describe('the states that are not an x01 board', () => {
     // The shared keypad came with it, and the x01 checkout strip did not.
     expect(screen.getByRole('button', { name: '20, single' })).toBeInTheDocument()
     expect(screen.queryByText('Checkout')).not.toBeInTheDocument()
+  })
+
+  it('has the shared ‹ home on the board, which is one tap (#70)', async () => {
+    servesNoMatches()
+    const user = userEvent.setup()
+    renderApp('/play/42')
+    await board()
+
+    await user.click(await expectBackLink('Back to home', '/'))
+    await expectHome()
+  })
+
+  it('keeps the ‹ home when the path is not a match (#70)', async () => {
+    renderApp('/play/nonsense')
+
+    await screen.findByText(/That is not a match/)
+    await expectBackLink('Back to home', '/')
   })
 
   it('refuses a path that is not a match without asking the server', async () => {

@@ -23,7 +23,14 @@ import { http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import type { LeaderboardRow } from '../api/stats'
 import '../styles/global.css'
-import { installServer, renderApp, server } from '../test-harness'
+import {
+  expectBackLink,
+  expectHome,
+  installServer,
+  renderApp,
+  server,
+  servesNoMatches,
+} from '../test-harness'
 import { leaderboard, playerReport, ranked, rankRow } from '../stats/statsfixture'
 
 installServer()
@@ -112,6 +119,30 @@ describe('the ranking', () => {
     const row = await screen.findByRole('listitem')
     expect(row.textContent).toContain('—')
     expect(document.body.textContent).not.toContain('NaN')
+  })
+})
+
+describe('the way home (#70)', () => {
+  it('has a ‹ to home, which is one tap', async () => {
+    serves()
+    servesNoMatches()
+    renderApp('/stats?game_type=cricket')
+
+    // Home, not "home with the filter": the filter belongs to this screen.
+    await userEvent.click(await expectBackLink('Back to home', '/'))
+    await expectHome()
+  })
+
+  it('keeps it when the table will not load', async () => {
+    server.use(
+      http.get('*/api/stats/leaderboard', () =>
+        HttpResponse.json({ detail: 'nope' }, { status: 500 }),
+      ),
+    )
+    renderApp('/stats')
+
+    await screen.findByRole('alert', {}, { timeout: 5000 })
+    await expectBackLink('Back to home', '/')
   })
 })
 

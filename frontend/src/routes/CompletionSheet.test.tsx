@@ -13,13 +13,13 @@
  * `active_leg` for the deciding one. That asymmetry is the server's and is what
  * `sheetDue` reads; see `play/sheet.ts`.
  */
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DartWrite, MatchState } from '../api/play'
 import '../styles/global.css'
-import { installServer, renderApp, server } from '../test-harness'
+import { expectHome, installServer, renderApp, server, servesNoMatches } from '../test-harness'
 import { leg, matchState, practiceTeams, visit, DAD, JACK } from '../play/statefixture'
 import { matchStats } from '../matches/historyfixture'
 
@@ -196,6 +196,15 @@ describe('the leg sheet', () => {
     responses = [legWon({ bestOf: 3, legIndex: 0, legsWon: [1, 0] })]
   })
 
+  it('offers no Home, which #70 gave the match sheet only', async () => {
+    // Mid-match the way home is the board's own ‹, one tap after Continue.
+    renderApp('/play/42')
+    await throwADart()
+
+    const sheet = await screen.findByRole('dialog', { name: 'Leg 1 complete' })
+    expect(within(sheet).queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
+  })
+
   it('shows the checkout that finished it', async () => {
     renderApp('/play/42')
     await throwADart()
@@ -323,6 +332,34 @@ describe('the match sheet', () => {
       'href',
       '/history/42',
     )
+  })
+
+  it('has a Home action, beside "See every dart" (#70)', async () => {
+    servesNoMatches()
+    renderApp('/play/42')
+    await throwADart()
+
+    const sheet = await screen.findByRole('dialog', { name: 'Match complete' })
+    const home = within(sheet).getByRole('link', { name: 'Home' })
+    expect(home).toHaveAttribute('href', '/')
+    // On the floor like the link above it: the same class, the same minimum.
+    expect(home).toHaveClass('csheet__link')
+    expect(getComputedStyle(home).getPropertyValue('min-height').trim()).toBe('var(--touch-min)')
+    // The two ways of staying with this match come first; leaving is last.
+    // The two ways of staying with this match come first; leaving is last, and
+    // shares its row with the other address (stacked, it overflowed a 2v2).
+    const actions = [...sheet.querySelectorAll('.csheet__actions a, .csheet__actions button')]
+    expect(actions.map((action) => action.textContent)).toEqual([
+      'Stay here',
+      'See every dart',
+      'Home',
+    ])
+    expect(home.parentElement).toHaveClass('csheet__pair')
+    expect(within(home.parentElement!).getAllByRole('link')).toHaveLength(2)
+
+    await userEvent.click(home)
+    await expectHome()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
   it('can be dismissed to look at the finished board', async () => {

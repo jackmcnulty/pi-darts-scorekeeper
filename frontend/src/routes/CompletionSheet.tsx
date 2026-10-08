@@ -108,9 +108,20 @@ function MatchBody({ match, onClose }: { match: MatchState; onClose: () => void 
           <Button variant="secondary" onClick={onClose}>
             Stay here
           </Button>
-          <Link className="csheet__link" to={`/history/${String(match.match_id)}`}>
-            See every dart
-          </Link>
+          {/* #70: the match is over, so home is somewhere to go. It shares a
+              row with "See every dart" because stacked as a third action it
+              took a 2v2 sheet past its 85dvh cap -- measured at 402x781, Home
+              sat 18px below the fold. Paired, the sheet is a row shorter than
+              that and fits. Only the match sheet: mid-match, the leg sheet's
+              way home is the board's own ‹, one tap after Continue. */}
+          <div className="csheet__pair">
+            <Link className="csheet__link" to={`/history/${String(match.match_id)}`}>
+              See every dart
+            </Link>
+            <Link className="csheet__link" to="/">
+              Home
+            </Link>
+          </div>
         </div>
       </div>
     </Sheet>

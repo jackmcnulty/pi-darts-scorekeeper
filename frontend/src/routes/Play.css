@@ -41,20 +41,10 @@
   height: var(--touch-min);
 }
 
-/* Interactive, so it sits on the same 56px floor as everything else. */
+/* The box, glyph and 56px floor are `components/BackLink.css` (#70); only the
+   pull into this screen's narrower gutter is the frame's. */
 .play__back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--touch-min);
-  height: var(--touch-min);
   margin-left: calc(var(--space-3) * -1);
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: var(--text-lg);
-  text-decoration: none;
-  border-radius: var(--radius-full);
 }
 
 .play__context {

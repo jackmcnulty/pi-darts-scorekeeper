@@ -54,12 +54,20 @@ import {
 import {
   cricket,
   emptyStats,
+  leaderboard,
   playerReport,
   playerStats,
   x01,
   zeroStats,
 } from '../stats/statsfixture'
-import { installServer, renderApp, server } from '../test-harness'
+import {
+  expectBackLink,
+  expectHome,
+  installServer,
+  renderApp,
+  server,
+  servesNoMatches,
+} from '../test-harness'
 
 installServer()
 
@@ -448,5 +456,45 @@ describe('the segment-frequency visual', () => {
     await screen.findByRole('heading', { name: 'Jack' })
 
     expect(screen.getByText(/no darts in this filter yet/i)).toBeInTheDocument()
+  })
+})
+
+describe('the way home (#70)', () => {
+  it('is two taps: ‹ to the leaderboard, keeping its filter, then ‹ to home', async () => {
+    serves(playerStats())
+    server.use(http.get('*/api/stats/leaderboard', () => HttpResponse.json(leaderboard())))
+    servesNoMatches()
+    const user = userEvent.setup()
+    renderApp('/stats/1?game_type=cricket')
+    await screen.findByRole('heading', { level: 1, name: 'Jack' })
+
+    // #27's link carried the filter back with it; the ‹ that replaced it must too.
+    await user.click(await expectBackLink('Back to the leaderboard', '/stats?game_type=cricket'))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Stats' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Cricket' })).toBeChecked()
+
+    await user.click(await expectBackLink('Back to home', '/'))
+    await expectHome()
+  })
+
+  it('goes back to the plain leaderboard from an unfiltered card', async () => {
+    serves(playerStats())
+    renderApp('/stats/1')
+
+    await expectBackLink('Back to the leaderboard', '/stats')
+    // #27's text link is replaced, not kept beside it as a second way back.
+    expect(screen.getAllByRole('link', { name: /leaderboard/i })).toHaveLength(1)
+  })
+
+  it('is there when the card will not load', async () => {
+    server.use(
+      http.get('*/api/stats/players/:playerId', () =>
+        HttpResponse.json({ detail: 'nope' }, { status: 500 }),
+      ),
+    )
+    renderApp('/stats/1')
+
+    await screen.findByRole('alert', {}, { timeout: 5000 })
+    await expectBackLink('Back to the leaderboard', '/stats')
   })
 })

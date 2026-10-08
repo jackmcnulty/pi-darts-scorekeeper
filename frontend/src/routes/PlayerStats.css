@@ -6,18 +6,17 @@
   padding: var(--space-6);
 }
 
-.pstats__back {
-  margin: 0;
-  font-size: var(--text-sm);
+.pstats__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
-.pstats__back a {
-  /* The 56px touch floor is for controls; this is an inline text link, so it
-     gets padding for the thumb without becoming a block. */
-  display: inline-block;
-  padding: var(--space-2) 0;
-  color: var(--color-primary);
-  text-decoration: none;
+/* #70 replaced #27's padded text link with the shared ‹, which is on the 56px
+   floor like every other control. Box, glyph and floor are
+   `components/BackLink.css`; the pull matches Setup's. */
+.pstats__back {
+  margin-left: calc(var(--space-4) * -1);
 }
 
 .pstats__title {

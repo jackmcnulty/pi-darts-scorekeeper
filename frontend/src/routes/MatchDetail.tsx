@@ -29,10 +29,19 @@
  * and the status. They are separate because the dart-grain read is #26's own
  * endpoint and the match header is the resource that already existed; a single
  * fat response would have meant widening one of them to carry the other.
+ *
+ * A way out in every state
+ * ------------------------
+ * #70: installed to the home screen there is no back gesture, so the ‹ to the
+ * history is drawn by `Frame` around every return below -- not a match, still
+ * loading, failed, and the match itself. A link only on the success branch would
+ * leave a failed fetch as the dead end the ticket is about. It replaces the "Back
+ * to the history" text link that sat at the bottom of a long scroll.
  */
-import { Link, useParams } from 'react-router'
+import { useParams } from 'react-router'
 import { useMatchDarts } from '../api/history'
 import { useMatch } from '../api/matches'
+import { BackLink } from '../components/BackLink'
 import { Button } from '../components/Button'
 import {
   describeMatch,
@@ -43,6 +52,16 @@ import {
 } from '../matches/history'
 import { isSingleSided, outcomeVerb } from '../matches/sides'
 import './MatchDetail.css'
+
+/** The screen's padding and its ‹, whichever state is inside. */
+function Frame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="detail">
+      <BackLink className="detail__back" to="/history" label="Back to history" />
+      {children}
+    </div>
+  )
+}
 
 export function MatchDetail() {
   const params = useParams()
@@ -57,26 +76,24 @@ export function MatchDetail() {
 
   if (matchId === null) {
     return (
-      <div className="detail">
-        <p className="detail__note">
-          That is not a match. <Link to="/history">Back to the history</Link>
-        </p>
-      </div>
+      <Frame>
+        <p className="detail__note">That is not a match.</p>
+      </Frame>
     )
   }
 
   if (match.isPending || darts.isPending) {
     return (
-      <div className="detail">
+      <Frame>
         <p className="detail__note">Reading the match&hellip;</p>
-      </div>
+      </Frame>
     )
   }
 
   const failure = match.error ?? darts.error
   if (failure !== null) {
     return (
-      <div className="detail">
+      <Frame>
         <div className="detail__note" role="alert">
           <p>{failure.message}</p>
           <Button
@@ -89,7 +106,7 @@ export function MatchDetail() {
             Try again
           </Button>
         </div>
-      </div>
+      </Frame>
     )
   }
 
@@ -116,7 +133,7 @@ export function MatchDetail() {
   )
 
   return (
-    <div className="detail">
+    <Frame>
       <header className="detail__header">
         <h1 className="detail__title">{describeMatch(match.data)}</h1>
         <p className="detail__players">{opponents(match.data)}</p>
@@ -189,10 +206,6 @@ export function MatchDetail() {
           </section>
         )
       })}
-
-      <p className="detail__back">
-        <Link to="/history">Back to the history</Link>
-      </p>
-    </div>
+    </Frame>
   )
 }

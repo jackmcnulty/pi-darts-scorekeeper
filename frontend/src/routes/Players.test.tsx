@@ -12,7 +12,14 @@ import { http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { components } from '../api/schema'
 import '../styles/global.css'
-import { installServer, renderApp, server } from '../test-harness'
+import {
+  expectBackLink,
+  expectHome,
+  installServer,
+  renderApp,
+  server,
+  servesNoMatches,
+} from '../test-harness'
 
 installServer()
 
@@ -160,6 +167,26 @@ describe('the list', () => {
     server.use(http.get('*/api/players', () => HttpResponse.json(roster)))
     await user.click(screen.getByRole('button', { name: /try again/i }))
     expect(await screen.findByRole('button', { name: 'Jack' })).toBeInTheDocument()
+  })
+})
+
+describe('the way home (#70)', () => {
+  it('has a ‹ to home, which is one tap', async () => {
+    servesNoMatches()
+    const user = await openPlayers()
+
+    await user.click(await expectBackLink('Back to home', '/'))
+    await expectHome()
+  })
+
+  it('keeps it when the list will not load, which is when it matters most', async () => {
+    server.use(
+      http.get('*/api/players', () => HttpResponse.json({ detail: 'nope' }, { status: 500 })),
+    )
+    renderApp('/players')
+
+    await screen.findByRole('alert', {}, { timeout: 5000 })
+    await expectBackLink('Back to home', '/')
   })
 })
 

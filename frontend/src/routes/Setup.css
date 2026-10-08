@@ -23,18 +23,9 @@
   gap: var(--space-2);
 }
 
+/* The box, glyph and 56px floor are `components/BackLink.css` (#70). */
 .setup__back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  /* A back chevron is small; its target is not. */
-  min-width: var(--touch-min);
-  min-height: var(--touch-min);
   margin-left: calc(var(--space-4) * -1);
-  color: var(--color-text);
-  font-size: var(--text-2xl);
-  line-height: 1;
-  text-decoration: none;
 }
 
 .setup__title {

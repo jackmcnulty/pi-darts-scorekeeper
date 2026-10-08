@@ -29,9 +29,17 @@
  * arithmetic in the file is the segment bar's width, which is geometry -- it sizes
  * a bar, is written to a custom property rather than to the document, and no
  * number a reader sees comes from it.
+ *
+ * The way back carries the filters
+ * --------------------------------
+ * #70's ‹ replaced #27's "← Leaderboard" text link and kept what it did: the
+ * query string goes back with it, so a card opened from a cricket table returns
+ * to the cricket table. It sits beside the heading, which renders in every state
+ * (loading, failed, unknown player), so no state of this screen is a dead end.
  */
-import { Link, useParams, useSearchParams } from 'react-router'
+import { useParams, useSearchParams } from 'react-router'
 import { RECENT_MATCHES, usePlayerStats } from '../api/stats'
+import { BackLink } from '../components/BackLink'
 import { Button } from '../components/Button'
 import { SegmentedControl } from '../components/SegmentedControl'
 import {
@@ -119,11 +127,14 @@ export function PlayerStats() {
 
   return (
     <div className="pstats">
-      <p className="pstats__back">
-        <Link to={{ pathname: '/stats', search: params.toString() }}>← Leaderboard</Link>
-      </p>
-
-      <h1 className="pstats__title">{all?.display_name ?? 'Player'}</h1>
+      <header className="pstats__header">
+        <BackLink
+          className="pstats__back"
+          to={{ pathname: '/stats', search: params.toString() }}
+          label="Back to the leaderboard"
+        />
+        <h1 className="pstats__title">{all?.display_name ?? 'Player'}</h1>
+      </header>
 
       <SegmentedControl label="Game type" value={game} options={GAME_FILTERS} onChange={setGame} />
 
