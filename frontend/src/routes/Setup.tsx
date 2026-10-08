@@ -19,6 +19,7 @@ import { useReducer, type CSSProperties } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { useCreateMatch, useResumableMatch } from '../api/matches'
 import { usePlayers, type Player } from '../api/players'
+import { BackLink } from '../components/BackLink'
 import { Button } from '../components/Button'
 import { Chip } from '../components/Chip'
 import { SegmentedControl } from '../components/SegmentedControl'
@@ -96,9 +97,7 @@ export function Setup() {
       <header className="setup__header">
         {/* In standalone mode there is no browser chrome and therefore no back
             gesture out of a dead end, so the screen provides its own. */}
-        <Link className="setup__back" to="/" aria-label="Back to home">
-          ‹
-        </Link>
+        <BackLink className="setup__back" to="/" label="Back to home" />
         <h1 className="setup__title">New match</h1>
       </header>
 

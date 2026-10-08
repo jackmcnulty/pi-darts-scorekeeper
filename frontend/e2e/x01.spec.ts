@@ -211,7 +211,8 @@ test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow'
     },
   })
 
-  await page.getByRole('link', { name: '← Leaderboard' }).click()
+  // #70 replaced #27's "← Leaderboard" text link with the shared ‹.
+  await page.getByRole('link', { name: 'Back to the leaderboard' }).click()
   await page.getByRole('list').getByRole('link').nth(1).click()
   await expect(page.getByRole('heading', { level: 1, name: BEN })).toBeVisible()
   await expectCard(page, {

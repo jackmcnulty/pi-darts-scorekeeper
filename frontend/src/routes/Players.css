@@ -10,11 +10,18 @@
 .players__header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-2);
+}
+
+/* #70. The box, glyph and 56px floor are `components/BackLink.css`; the pull
+   is the same as Setup's into the same `--space-6` gutter. */
+.players__back {
+  margin-left: calc(var(--space-4) * -1);
 }
 
 .players__title {
+  /* Takes the slack, so "Add" stays at the right edge beside it. */
+  flex: 1 1 auto;
   margin: 0;
   font-size: var(--text-2xl);
   line-height: var(--leading-tight);

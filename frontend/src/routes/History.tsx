@@ -19,6 +19,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router'
 import { useMatchHistory, type MatchStatus } from '../api/history'
+import { BackLink } from '../components/BackLink'
 import { Button } from '../components/Button'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { historyRows, pageInfo } from '../matches/history'
@@ -69,7 +70,11 @@ export function History() {
 
   return (
     <div className="history">
-      <h1 className="history__title">History</h1>
+      <header className="history__header">
+        {/* #70: installed to the home screen there is no back gesture. */}
+        <BackLink className="history__back" to="/" label="Back to home" />
+        <h1 className="history__title">History</h1>
+      </header>
 
       <SegmentedControl label="Show" value={filter} options={FILTERS} onChange={onFilter} />
 

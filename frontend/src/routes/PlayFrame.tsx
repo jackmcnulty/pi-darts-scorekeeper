@@ -15,17 +15,16 @@
  * `Play.css` with the rest of the screen, and `Play.test.tsx` parses them as
  * text, because jsdom does no layout and cannot check the fit itself.
  */
-import { Link } from 'react-router'
+import { BackLink } from '../components/BackLink'
 
 export function PlayFrame({ context, children }: { context?: string; children: React.ReactNode }) {
   return (
     <div className="play">
       <div className="play__topbar">
         {/* Standalone mode has no browser chrome, so there is no back gesture
-            out of here. #23 added the same link to /setup for the same reason. */}
-        <Link className="play__back" to="/" aria-label="Back to home">
-          ‹
-        </Link>
+            out of here. #23 added the same link to /setup for the same reason,
+            and #70 made the two one component. */}
+        <BackLink className="play__back" to="/" label="Back to home" />
         <span className="play__context tnum">{context ?? 'Match'}</span>
         <span className="play__topbar-spacer" />
       </div>

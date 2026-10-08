@@ -24,12 +24,19 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { describe, expect, it } from 'vitest'
 import type { LegHistory } from '../api/history'
 import type { Match } from '../api/matches'
 import '../styles/global.css'
-import { installServer, renderApp, server } from '../test-harness'
+import {
+  expectBackLink,
+  expectHome,
+  installServer,
+  renderApp,
+  server,
+  servesNoMatches,
+} from '../test-harness'
 import { bustedVisit, DAD, JACK, leg, match, matchHistory, visit } from '../matches/historyfixture'
 
 installServer()
@@ -368,5 +375,63 @@ describe('a practice match (#68)', () => {
       expect(screen.getByText(/Jack finished/)).toBeInTheDocument()
     })
     expect(screen.queryByText(/won/)).not.toBeInTheDocument()
+  })
+})
+
+describe('the way home (#70)', () => {
+  it('is two taps: ‹ to the history, then ‹ to home', async () => {
+    serves(match({ id: 42 }), [legWithABust()])
+    servesNoMatches()
+    const user = userEvent.setup()
+    renderApp('/history/42')
+    await screen.findByText('BUST')
+
+    await user.click(await expectBackLink('Back to history', '/history'))
+    expect(await screen.findByRole('heading', { level: 1, name: 'History' })).toBeInTheDocument()
+
+    await user.click(await expectBackLink('Back to home', '/'))
+    await expectHome()
+  })
+
+  it('replaces the text link that sat at the bottom, rather than adding a second', async () => {
+    serves(match({ id: 42 }), [legWithABust()])
+    renderApp('/history/42')
+    await screen.findByText('BUST')
+
+    expect(screen.queryByRole('link', { name: /Back to the history/ })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: /history/i })).toHaveLength(1)
+  })
+
+  // Every early return is a screen too: the ‹ is drawn around each of them.
+  it('is there while the match is still loading', async () => {
+    server.use(
+      http.get('*/api/matches/:matchId', async () => {
+        await delay('infinite')
+        return HttpResponse.json({})
+      }),
+      http.get('*/api/matches/:matchId/darts', async () => {
+        await delay('infinite')
+        return HttpResponse.json({})
+      }),
+    )
+    renderApp('/history/42')
+
+    expect(await screen.findByText(/Reading the match/)).toBeInTheDocument()
+    await expectBackLink('Back to history', '/history')
+  })
+
+  it('is there when the match will not load', async () => {
+    serves(match({ id: 42 }), [])
+    renderApp('/history/999')
+
+    await screen.findByRole('alert', {}, { timeout: 5000 })
+    await expectBackLink('Back to history', '/history')
+  })
+
+  it('is there for an address that is not a match', async () => {
+    renderApp('/history/nonsense')
+
+    expect(await screen.findByText(/not a match/i)).toBeInTheDocument()
+    await expectBackLink('Back to history', '/history')
   })
 })

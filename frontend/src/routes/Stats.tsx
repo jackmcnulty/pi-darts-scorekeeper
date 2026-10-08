@@ -25,6 +25,7 @@
  */
 import { Link, useSearchParams } from 'react-router'
 import { RECENT_MATCHES, useLeaderboard } from '../api/stats'
+import { BackLink } from '../components/BackLink'
 import { Button } from '../components/Button'
 import { SegmentedControl } from '../components/SegmentedControl'
 import {
@@ -68,7 +69,11 @@ export function Stats() {
 
   return (
     <div className="stats">
-      <h1 className="stats__title">Stats</h1>
+      <header className="stats__header">
+        {/* #70: installed to the home screen there is no back gesture. */}
+        <BackLink className="stats__back" to="/" label="Back to home" />
+        <h1 className="stats__title">Stats</h1>
+      </header>
 
       <SegmentedControl
         label="Game type"

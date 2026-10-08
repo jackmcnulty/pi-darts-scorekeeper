@@ -171,10 +171,10 @@
   letter-spacing: 0.08em;
 }
 
+/* #70: the ‹ on its own row above the header, so it is the same row in every
+   state -- loading and failed have no header to sit beside. Box, glyph and 56px
+   floor are `components/BackLink.css`; the pull matches Setup's. */
 .detail__back {
-  margin: 0;
-}
-
-.detail__back a {
-  color: var(--color-primary);
+  align-self: flex-start;
+  margin-left: calc(var(--space-4) * -1);
 }

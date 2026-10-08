@@ -18,7 +18,7 @@ import type { components } from '../api/schema'
 import type { MatchWrite } from '../setup/config'
 import { matchState } from '../play/statefixture'
 import '../styles/global.css'
-import { installServer, renderApp, server } from '../test-harness'
+import { expectBackLink, expectHome, installServer, renderApp, server } from '../test-harness'
 
 installServer()
 
@@ -113,6 +113,18 @@ async function rosterList() {
 function row(name: string) {
   return screen.getByRole('button', { name: new RegExp(`^${name},`) })
 }
+
+describe('the way home (#70)', () => {
+  it('has the shared ‹ home, which is one tap', async () => {
+    const user = userEvent.setup()
+    renderApp('/setup')
+
+    // Home asks `/api/matches` for a match in progress, which the beforeEach
+    // already answers with nothing.
+    await user.click(await expectBackLink('Back to home', '/'))
+    await expectHome()
+  })
+})
 
 describe('control visibility', () => {
   it('shows the x01 rule controls for an x01 game', async () => {

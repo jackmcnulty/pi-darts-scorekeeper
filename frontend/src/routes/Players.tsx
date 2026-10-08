@@ -10,6 +10,7 @@
  */
 import { useState, type CSSProperties } from 'react'
 import { usePlayers, type Player } from '../api/players'
+import { BackLink } from '../components/BackLink'
 import { Button } from '../components/Button'
 import { SegmentedControl } from '../components/SegmentedControl'
 import { accentColour } from '../players/accents'
@@ -41,6 +42,8 @@ export function Players() {
   return (
     <div className="players">
       <header className="players__header">
+        {/* #70: the gap known since #23. Standalone mode has no back gesture. */}
+        <BackLink className="players__back" to="/" label="Back to home" />
         <h1 className="players__title">Players</h1>
         <Button
           onClick={() => {
