@@ -591,8 +591,8 @@ Ordered by `match_id`.
 | 12 | `legs_played` | Legs that exist |
 | 13 | `legs_completed` | Legs with a `completed_at` |
 | 14 | `darts_thrown` | Agrees with the row count of `darts.csv?match_id=` |
-| 15 | `winner_team_id` | Empty unless complete. In a single-sided match, the team that finished |
-| 16 | `winner_team_name` | |
+| 15 | `winner_team_id` | Empty unless complete, and always empty for a single-sided match, which is never a win (#68) |
+| 16 | `winner_team_name` | Empty exactly when `winner_team_id` is |
 | 17 | `teams` | `Reds vs Blues` |
 | 18 | `players` | `Ana+Cal vs Ben+Dee`, in team and member order |
 

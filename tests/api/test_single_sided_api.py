@@ -11,6 +11,8 @@ as easily drop its darts from the average.
 `test_one_member_and_two_member_sides` keeps the two apart on purpose.
 """
 
+import csv
+import io
 from typing import Any
 
 import pytest
@@ -229,3 +231,22 @@ def test_recent_window_counts_practice_matches_it_covers(client: TestClient) -> 
     assert recent["darts_thrown"] == 16
     everything = player_stats(client, pid)
     assert everything["matches_played"] + everything["single_sided_matches"] == 3
+
+
+def test_matches_csv_names_no_winner_for_practice(client: TestClient) -> None:
+    """Complete, but with empty winner cells: the export never calls practice a win."""
+    solo = new_match(client, cricket("quick"), teams=[("Ana",)])
+    throw_match(client, solo["current_leg_id"], CRICKET_CLOSE_OUT, prefix="solo")
+    duel = new_match(client, cricket("quick"), teams=[("Cal",), ("Dee",)])
+    throw_match(client, duel["current_leg_id"], alternating(CRICKET_CLOSE_OUT), prefix="duel")
+
+    response = client.get("/api/export/matches.csv")
+    assert response.status_code == 200
+    rows = {int(r["match_id"]): r for r in csv.DictReader(io.StringIO(response.text))}
+    practice, contested = rows[solo["id"]], rows[duel["id"]]
+    assert practice["status"] == "complete"
+    assert (practice["winner_team_id"], practice["winner_team_name"]) == ("", "")
+    assert " vs " not in practice["teams"]
+    # A contested match still names its winner.
+    assert contested["winner_team_id"] == str(duel["teams"][0]["id"])
+    assert contested["winner_team_name"].startswith("Cal")

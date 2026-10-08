@@ -95,10 +95,10 @@ DARTS_HEADER: Final[tuple[str, ...]] = (
 
 #: One row per match, with its teams and players flattened into two cells.
 #:
-#: A single-sided match (#68) has one team, so `teams` has no " vs " in it. Its
-#: `winner_team_id` / `winner_team_name` are exported as stored: the team that
-#: finished, which in a one-team match is never a win (see views.sql). The
-#: export is the raw record, not the stats layer's reading of it.
+#: A single-sided match (#68) has one team, so `teams` has no " vs " in it, and
+#: its `winner_team_id` / `winner_team_name` are empty even once it is
+#: complete: the stored column only names the finisher, and practice is never a
+#: win (see views.sql). `export.sql` blanks it, so `_match_record` needs no rule.
 MATCHES_HEADER: Final[tuple[str, ...]] = (
     "match_id",
     "status",
