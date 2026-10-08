@@ -14,6 +14,7 @@
  *
  *   Ava  7 x (20 20 20) = 420, then 20 20 1 = 41      -> 40 left
  *   Ava  20 20                                        -> bust (0 on a single)
+ *        busting 20 undone and thrown again            -> the same bust
  *   Ava  19, undone; D20                              -> checkout
  *   Ben  9 x (15 15 15)                               -> 96 left
  *
@@ -30,7 +31,9 @@
  *
  * The average is what proves two of the three moments reached the database:
  * if the bust's two darts were not counted it would be 60.12, and if the
- * undone 19 were it would be 56.72.
+ * undone 19 were it would be 56.72. The busting 20 that is undone and thrown
+ * again (#69's undo-after-the-turn check) leaves the same darts in the
+ * database, so it moves none of these figures.
  */
 import { expect, type Page, test } from '@playwright/test'
 import { addPlayer, lanLatency, startMatch, undo, visit } from './helpers.ts'
@@ -99,15 +102,32 @@ test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow'
     await expect(page.getByRole('status').filter({ hasText: 'Bust' })).toHaveText(
       'Bust on 20 — back to 40',
     )
-    // Both darts stay on the visit, the third is never thrown, and it scores 0.
-    await expect(page.getByLabel('Dart 1, 20')).toBeVisible()
-    await expect(page.getByLabel('Dart 2, 20')).toBeVisible()
-    await expect(page.getByLabel('Dart 3, not thrown')).toBeVisible()
-    await expect(page.getByLabel('Visit scored 0')).toBeVisible()
-    // Back to 40, and the turn has passed to Ben after two darts.
+    // #69: the turn has passed to Ben after two darts, so the strip is his and
+    // empty. The visit's result stays until his first dart: it scored 0.
     await expect(tile(page, AVA)).toHaveAccessibleName('Ava, 40 remaining, 0 legs won')
     await expect(tile(page, BEN)).toHaveAccessibleName(/throwing now$/)
+    await expect(page.getByLabel(/^Dart \d, not thrown$/)).toHaveCount(3)
+    await expect(page.getByLabel('Visit scored 0')).toBeVisible()
     // The live average already includes the two busted darts: 3 x 461 / 26.
+    await expect(tile(page, AVA)).toContainText('Avg 53.2')
+
+    // Undo after the turn has passed: Ava's visit comes back with its first 20,
+    // the bust is gone, and she is throwing at 20 again.
+    await undo(page)
+    await expect(tile(page, AVA)).toHaveAccessibleName(
+      /^Ava, 20 remaining, 0 legs won, throwing now/,
+    )
+    await expect(page.getByLabel('Dart 1, 20')).toBeVisible()
+    await expect(page.getByLabel('Dart 2, not thrown')).toBeVisible()
+    await expect(page.getByRole('status').filter({ hasText: 'Bust' })).toHaveCount(0)
+
+    // The same 20 again, the same bust, and the strip clears for Ben again.
+    await visit(page, '20')
+    await expect(page.getByRole('status').filter({ hasText: 'Bust' })).toHaveText(
+      'Bust on 20 — back to 40',
+    )
+    await expect(tile(page, AVA)).toHaveAccessibleName('Ava, 40 remaining, 0 legs won')
+    await expect(page.getByLabel(/^Dart \d, not thrown$/)).toHaveCount(3)
     await expect(tile(page, AVA)).toContainText('Avg 53.2')
   })
 
@@ -119,9 +139,10 @@ test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow'
     await expect(page.getByLabel('Dart 1, 19')).toBeVisible()
     await undo(page)
     await expect(tile(page, AVA)).toHaveAccessibleName(/^Ava, 40 remaining/)
-    // The 19 is gone. The visit strip goes back to showing the last completed
-    // visit (Ben's) until the next dart, which is #24's design, not a leftover.
+    // The 19 was the only dart of Ava's visit, so undoing it leaves no visit in
+    // progress and the strip is empty for her (#69).
     await expect(page.getByLabel('Dart 1, 19')).toHaveCount(0)
+    await expect(page.getByLabel(/^Dart \d, not thrown$/)).toHaveCount(3)
   })
 
   await test.step('checkout: D20 wins leg 1', async () => {

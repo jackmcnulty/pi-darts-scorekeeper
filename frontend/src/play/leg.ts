@@ -2,10 +2,11 @@
  * The parts of a play payload that are true whatever game is being played.
  *
  * Which leg takes the next dart, whether it will accept one, which leg an undo
- * addresses, which visit to show, and how a refusal reads. None of it depends
- * on x01's remaining score or cricket's marks, so it lives here rather than in
- * either game's module -- #24 wrote all of this in `x01.ts` because x01 was the
- * only board there was, and #25 needs the same seven answers unchanged.
+ * addresses, which visit the strip shows and which one a bust or a checkout is
+ * read from, and how a refusal reads. None of it depends on x01's remaining
+ * score or cricket's marks, so it lives here rather than in either game's
+ * module -- #24 wrote all of this in `x01.ts` because x01 was the only board
+ * there was, and #25 needs the same answers unchanged.
  *
  * Nothing here computes a rule. The thrower, the tally, the bust and the
  * refusal reason all arrive on `MatchStateResponse` already decided; these
@@ -68,16 +69,45 @@ export function canUndo(state: MatchState): boolean {
 }
 
 /**
- * The visit to show in the dart slots.
+ * The visit the dart slots show: the one being thrown, and nothing in between.
  *
- * `current_visit` is null for the third of the time between a visit ending and
- * the next dart landing, so showing only that would make the third dart of
- * every visit vanish the instant it was entered. Falling back to
- * `previous_visit` keeps the visit that just finished on screen until the next
- * one starts -- which in x01 is also what puts a bust in front of the player
- * who caused it for longer than one repaint.
+ * #24 fell back to `previous_visit` here so the third dart would not vanish
+ * the instant it was entered. #32's device pass found the cost: the next
+ * thrower stood at the oche looking at the last player's darts until their own
+ * first one landed. #69 clears the strip as soon as the turn passes, and Jack
+ * chose "immediately" over a brief hold -- a hold would be the first timer on
+ * the play screen and a piece of state the payload does not have. The third
+ * dart is not lost: the turn visibly passing is what says it landed, and an
+ * undo puts the visit back, because the server reopens it as `current_visit`.
+ *
+ * The one exception is a won match. Nobody throws next, so "empty for the next
+ * thrower" means nothing there; the winning darts stay, agreeing with the
+ * completion sheet's checkout row and the "won the match" line, and a winning
+ * dart entered wrongly is still in front of whoever wants to undo it. That is
+ * `current_leg`, because `active_leg` is null once the match is decided. A
+ * checkout that wins only the leg needs no exception: `legInPlay` has already
+ * rolled on to the new leg, which has no visits yet.
+ *
+ * This takes the whole state rather than a leg because it needs the match's
+ * status; it chooses which payload field to draw, and decides no rule.
  */
-export function shownVisit(leg: LegState): Visit | null {
+export function stripVisit(state: MatchState): Visit | null {
+  const leg = legInPlay(state)
+  return leg.current_visit ?? (state.is_complete ? leg.previous_visit : null)
+}
+
+/**
+ * The most recent visit in the leg, finished or not -- #24's original rule.
+ *
+ * No longer what the dart slots show (`stripVisit` is), but still the right
+ * question for three readers. x01's bust line and visit total: both stay up
+ * from the visit's last dart until the next dart lands, exactly as before #69.
+ * Jack kept the total on this rule so #24's "shows 180 for the visit" is still
+ * on screen after the third dart; reading `previous_visit` alone instead would
+ * keep both up through the next player's whole visit. And `finishingVisit` on
+ * the leg sheet, where the winning visit is the one that just finished.
+ */
+export function latestVisit(leg: LegState): Visit | null {
   return leg.current_visit ?? leg.previous_visit
 }
 

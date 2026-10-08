@@ -290,8 +290,10 @@ describe('the scoreboard', () => {
     await board()
 
     expect(screen.getByLabelText('Visit scored 180')).toHaveTextContent('180')
-    // The finished visit stays on screen, so the third dart does not vanish.
-    expect(screen.getByLabelText('Dart 3, T20')).toBeInTheDocument()
+    // #69: the darts clear for Dad, but the total stays until his first dart,
+    // which is what keeps this criterion on screen. The strip's own cases are
+    // under "the visit strip when the turn passes".
+    expect(screen.getByLabelText('Dart 3, not thrown')).toBeInTheDocument()
     expect(
       screen.getByRole('group', { name: 'Dad, 501 remaining, 0 legs won, throwing now' }),
     ).toBeInTheDocument()
@@ -528,6 +530,212 @@ describe('undo', () => {
     expect(
       await screen.findByRole('group', { name: 'Jack, 441 remaining, 0 legs won, throwing now' }),
     ).toBeInTheDocument()
+  })
+})
+
+// --------------------------------------------------------------------------
+// The visit strip when the turn passes (#69)
+// --------------------------------------------------------------------------
+
+/** The three slots, as a screen reader hears them. */
+function slots(group: HTMLElement): (string | null)[] {
+  return within(group)
+    .getAllByLabelText(/^Dart \d, /)
+    .map((slot) => slot.getAttribute('aria-label'))
+}
+
+const EMPTY = ['Dart 1, not thrown', 'Dart 2, not thrown', 'Dart 3, not thrown']
+
+describe('the visit strip when the turn passes', () => {
+  it('clears for the next thrower once a third dart lands, and keeps the total', async () => {
+    const user = userEvent.setup()
+    current = matchState({
+      remaining: [381, 501],
+      dartsThrown: 2,
+      currentVisit: visit({
+        scoreBefore: 501,
+        scoreAfter: 381,
+        labels: ['T20', 'T20'],
+        isComplete: false,
+      }),
+    })
+    responses = [
+      matchState({
+        remaining: [321, 501],
+        thrower: 1,
+        dartsThrown: 3,
+        previousVisit: visit({ scoreBefore: 501, scoreAfter: 321, labels: ['T20', 'T20', 'T20'] }),
+      }),
+    ]
+    renderApp('/play/42')
+    const strip = await board()
+    expect(slots(strip)).toEqual(['Dart 1, T20', 'Dart 2, T20', 'Dart 3, not thrown'])
+
+    await user.click(latch('Triple'))
+    await user.click(pressKey('20, triple, 60'))
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('group', { name: 'Dad, 501 remaining, 0 legs won, throwing now' }),
+      ).toBeInTheDocument()
+    })
+    expect(slots(strip)).toEqual(EMPTY)
+    expect(screen.getByLabelText('Visit scored 180')).toBeInTheDocument()
+  })
+
+  it('clears after a bust while the bust line stays', async () => {
+    current = matchState({
+      remaining: [40, 501],
+      thrower: 1,
+      dartsThrown: 8,
+      previousVisit: visit({
+        scoreBefore: 40,
+        scoreAfter: 40,
+        labels: ['20', '20'],
+        isBust: true,
+      }),
+    })
+    renderApp('/play/42')
+
+    expect(slots(await board())).toEqual(EMPTY)
+    expect(screen.getByRole('status')).toHaveTextContent('Bust on 20 — back to 40')
+    expect(screen.getByLabelText('Visit scored 0')).toBeInTheDocument()
+  })
+
+  it('is empty after a checkout that wins only the leg', async () => {
+    // `legInPlay` has rolled on to leg 8, which has no visits; the D20 is the
+    // leg sheet's to show, not the strip's.
+    current = matchState({
+      legId: 7,
+      dartsThrown: 9,
+      winnerTeamId: 1,
+      legsWon: [1, 0],
+      previousVisit: visit({ scoreBefore: 40, scoreAfter: 0, labels: ['D20'] }),
+      activeLeg: leg({ legId: 8, legIndex: 1, thrower: 1 }),
+    })
+    renderApp('/play/42')
+
+    expect(slots(await board())).toEqual(EMPTY)
+    expect(screen.queryByLabelText(/^Visit scored/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the winning darts once the match is won', async () => {
+    current = matchState({
+      status: 'complete',
+      winner: 1,
+      winnerTeamId: 1,
+      legsWon: [2, 0],
+      dartsThrown: 9,
+      thrower: null,
+      previousVisit: visit({ scoreBefore: 40, scoreAfter: 0, labels: ['20', 'D10'] }),
+    })
+    renderApp('/play/42')
+
+    expect(slots(await board())).toEqual(['Dart 1, 20', 'Dart 2, D10', 'Dart 3, not thrown'])
+  })
+
+  it('brings the previous visit back, with its darts, when its third dart is undone', async () => {
+    const user = userEvent.setup()
+    current = matchState({
+      remaining: [321, 501],
+      thrower: 1,
+      dartsThrown: 3,
+      previousVisit: visit({ scoreBefore: 501, scoreAfter: 321, labels: ['T20', 'T20', 'T20'] }),
+    })
+    responses = [
+      matchState({
+        remaining: [381, 501],
+        thrower: 0,
+        dartsThrown: 2,
+        currentVisit: visit({
+          scoreBefore: 501,
+          scoreAfter: 381,
+          labels: ['T20', 'T20'],
+          isComplete: false,
+        }),
+      }),
+    ]
+    renderApp('/play/42')
+    const strip = await board()
+    expect(slots(strip)).toEqual(EMPTY)
+
+    await user.click(pressKey('UNDO'))
+
+    await waitFor(() => {
+      expect(slots(strip)).toEqual(['Dart 1, T20', 'Dart 2, T20', 'Dart 3, not thrown'])
+    })
+    expect(
+      screen.getByRole('group', { name: 'Jack, 381 remaining, 0 legs won, throwing now' }),
+    ).toBeInTheDocument()
+  })
+
+  it('brings a busted visit back without its bust when the busting dart is undone', async () => {
+    const user = userEvent.setup()
+    current = matchState({
+      remaining: [40, 501],
+      thrower: 1,
+      dartsThrown: 8,
+      previousVisit: visit({ scoreBefore: 40, scoreAfter: 40, labels: ['20', '20'], isBust: true }),
+    })
+    responses = [
+      matchState({
+        remaining: [20, 501],
+        thrower: 0,
+        dartsThrown: 7,
+        currentVisit: visit({ scoreBefore: 40, scoreAfter: 20, labels: ['20'], isComplete: false }),
+      }),
+    ]
+    renderApp('/play/42')
+    const strip = await board()
+
+    await user.click(pressKey('UNDO'))
+
+    await waitFor(() => {
+      expect(slots(strip)).toEqual(['Dart 1, 20', 'Dart 2, not thrown', 'Dart 3, not thrown'])
+    })
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('clears in a practice match too, where the turn passes back to the same player', async () => {
+    const user = userEvent.setup()
+    const teams = practiceTeams()
+    const done = visit({ scoreBefore: 301, scoreAfter: 241, labels: ['20', '20', '20'] })
+    current = matchState({
+      teams,
+      legsWon: [0],
+      remaining: [241, 0],
+      dartsThrown: 3,
+      previousVisit: done,
+    })
+    responses = [
+      matchState({
+        teams,
+        legsWon: [0],
+        remaining: [221, 0],
+        dartsThrown: 4,
+        previousVisit: done,
+        currentVisit: visit({
+          visitIndex: 1,
+          scoreBefore: 241,
+          scoreAfter: 221,
+          labels: ['20'],
+          isComplete: false,
+        }),
+      }),
+    ]
+    renderApp('/play/42')
+    const strip = await board()
+    expect(slots(strip)).toEqual(EMPTY)
+    expect(
+      screen.getByLabelText('Jack, 241 remaining, 0 legs finished, throwing now'),
+    ).toBeVisible()
+
+    await user.click(pressKey('20, single'))
+
+    await waitFor(() => {
+      expect(slots(strip)).toEqual(['Dart 1, 20', 'Dart 2, not thrown', 'Dart 3, not thrown'])
+    })
+    expect(screen.getByLabelText('Visit scored 20')).toBeInTheDocument()
   })
 })
 
