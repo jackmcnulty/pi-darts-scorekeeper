@@ -10,15 +10,16 @@
  */
 import { describe, expect, it } from 'vitest'
 import { ApiError, OfflineError } from '../api/client'
-import { leg, matchState, visit } from './statefixture'
+import { leg, matchState, practiceTeams, visit } from './statefixture'
 import {
   canUndo,
   isPlayable,
+  latestVisit,
   legInPlay,
   legToUndo,
   mintDartId,
   refusalText,
-  shownVisit,
+  stripVisit,
 } from './leg'
 
 describe('which leg is in play', () => {
@@ -95,23 +96,111 @@ describe('which leg an undo addresses', () => {
   })
 })
 
-describe('the visit on screen', () => {
+describe('the visit in the strip', () => {
+  // #69: the strip is the visit being thrown and nothing else, so the next
+  // thrower sees three empty slots. These are the states where #24's fallback
+  // to `previous_visit` used to fill it.
+  const threeDarts = visit({ scoreBefore: 501, scoreAfter: 321, labels: ['T20', 'T20', 'T20'] })
+
   it('is the one being thrown while it is being thrown', () => {
     const current = visit({ scoreBefore: 501, scoreAfter: 441, labels: ['T20'], isComplete: false })
-    expect(shownVisit(leg({ currentVisit: current }))?.visit_id).toBe(current.visit_id)
+    const state = matchState({ currentVisit: current, previousVisit: threeDarts })
+    expect(stripVisit(state)?.visit_id).toBe(current.visit_id)
   })
 
-  it('falls back to the visit that just finished, so the third dart is visible', () => {
-    // `current_visit` goes null the moment a visit ends. Showing only that would
-    // make every third dart vanish as it was entered.
+  it('is empty once a third dart ends the visit', () => {
+    const state = matchState({ currentVisit: null, previousVisit: threeDarts, thrower: 1 })
+    expect(stripVisit(state)).toBeNull()
+  })
+
+  it('is empty once a bust ends the visit, though the bust is still read', () => {
+    const bust = visit({
+      scoreBefore: 40,
+      scoreAfter: 40,
+      labels: ['20', '20'],
+      isBust: true,
+    })
+    const state = matchState({ currentVisit: null, previousVisit: bust, thrower: 1 })
+    expect(stripVisit(state)).toBeNull()
+    // The bust line reads `latestVisit`, which is why it outlives the strip.
+    expect(latestVisit(state.current_leg)?.is_bust).toBe(true)
+  })
+
+  it('is empty after a checkout that wins only the leg, because the new leg has no visits', () => {
+    const checkout = visit({ scoreBefore: 40, scoreAfter: 0, labels: ['D20'] })
+    const next = leg({ legId: 8, legIndex: 1, thrower: 1 })
+    const state = matchState({
+      legId: 7,
+      winnerTeamId: 1,
+      previousVisit: checkout,
+      activeLeg: next,
+      legsWon: [1, 0],
+    })
+    expect(stripVisit(state)).toBeNull()
+  })
+
+  it('keeps the winning visit once the match is won, since nobody throws next', () => {
+    const checkout = visit({ scoreBefore: 40, scoreAfter: 0, labels: ['20', 'D10'] })
+    const state = matchState({
+      status: 'complete',
+      winner: 1,
+      winnerTeamId: 1,
+      previousVisit: checkout,
+      thrower: null,
+    })
+    expect(stripVisit(state)?.visit_id).toBe(checkout.visit_id)
+  })
+
+  it('is empty when a match is abandoned between visits', () => {
+    const state = matchState({ status: 'abandoned', previousVisit: threeDarts, thrower: null })
+    expect(stripVisit(state)).toBeNull()
+  })
+
+  it('is the reopened visit after an undo takes back the third dart', () => {
+    // The server answers an undo with the visit reopened as `current_visit`,
+    // so the strip shows it again with nothing chosen here.
+    const reopened = visit({
+      scoreBefore: 501,
+      scoreAfter: 381,
+      labels: ['T20', 'T20'],
+      isComplete: false,
+    })
+    const state = matchState({ currentVisit: reopened, previousVisit: null })
+    expect(stripVisit(state)?.darts.map((dart) => dart.label)).toEqual(['T20', 'T20'])
+  })
+
+  it('clears in a one-team match too, where the turn passes back to the same player', () => {
+    const teams = practiceTeams()
+    const done = visit({ scoreBefore: 501, scoreAfter: 321, labels: ['T20', 'T20', 'T20'] })
+    const ended = matchState({ teams, legsWon: [0], previousVisit: done })
+    expect(stripVisit(ended)).toBeNull()
+
+    const current = visit({ scoreBefore: 321, scoreAfter: 261, labels: ['T20'], isComplete: false })
+    const throwing = matchState({ teams, legsWon: [0], currentVisit: current, previousVisit: done })
+    expect(stripVisit(throwing)?.visit_id).toBe(current.visit_id)
+  })
+
+  it('is nothing at all before the first dart of a leg', () => {
+    expect(stripVisit(matchState())).toBeNull()
+  })
+})
+
+describe('the latest visit', () => {
+  // #24's rule, kept for the bust line and the leg sheet's checkout row.
+  it('is the one being thrown while it is being thrown', () => {
+    const current = visit({ scoreBefore: 501, scoreAfter: 441, labels: ['T20'], isComplete: false })
+    expect(latestVisit(leg({ currentVisit: current }))?.visit_id).toBe(current.visit_id)
+  })
+
+  it('falls back to the visit that just finished', () => {
     const previous = visit({ scoreBefore: 501, scoreAfter: 321, labels: ['T20', 'T20', 'T20'] })
-    expect(shownVisit(leg({ currentVisit: null, previousVisit: previous }))?.visit_id).toBe(
+    expect(latestVisit(leg({ currentVisit: null, previousVisit: previous }))?.visit_id).toBe(
       previous.visit_id,
     )
   })
 
   it('is nothing at all before the first dart of a leg', () => {
-    expect(shownVisit(leg())).toBeNull()
+    expect(latestVisit(leg())).toBeNull()
   })
 })
 

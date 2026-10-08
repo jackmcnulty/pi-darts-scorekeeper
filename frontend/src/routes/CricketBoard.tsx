@@ -50,7 +50,7 @@ import {
   legToUndo,
   mintDartId,
   refusalText,
-  shownVisit,
+  stripVisit,
   VISIT_SIZE,
 } from '../play/leg'
 import { outcomeVerb } from '../matches/sides'
@@ -76,7 +76,7 @@ export function CricketBoard({
   const leg = legInPlay(match)
   const view = boardView(match, leg)
   const grid = gridColumns(view.singleSided)
-  const visit = shownVisit(leg)
+  const visit = stripVisit(match)
   const playable = isPlayable(match)
 
   // What moved since the last payload, for the two signals #25 asks for: a
@@ -209,10 +209,13 @@ export function CricketBoard({
           ))}
         </div>
 
-        {/* The dart history for the visit on screen. #25's fifth criterion asks
-            that a dart at a non-target still appear, and a 12 moves no mark at
-            all -- so without this row, entering one would give the player no
-            feedback whatsoever that it had been recorded. */}
+        {/* The dart history for the visit being thrown. #25's fifth criterion
+            asks that a dart at a non-target still appear, and a 12 moves no
+            mark at all -- so without this row, entering one would give the
+            player no feedback whatsoever that it had been recorded. Since #69
+            it clears when the turn passes, as x01's does; a third dart at 12 is
+            confirmed by the turn moving on, and undo brings the visit back.
+            `stripVisit` says why that was chosen over a brief hold. */}
         <div className="cricket__visit" role="group" aria-label="This visit">
           {Array.from({ length: VISIT_SIZE }, (_, index) => {
             const dart = visit?.darts[index]

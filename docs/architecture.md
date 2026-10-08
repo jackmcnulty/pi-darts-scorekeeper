@@ -1402,6 +1402,32 @@ decided. Three things the client conspicuously does **not** do:
 them — the `setup/config.ts` split, for the same `react-refresh` reason and the
 same enumerability.
 
+#### The strip clears when the turn passes (#69)
+
+#24 drew the "This visit" strip from `current_visit ?? previous_visit`, so the
+third dart did not vanish the instant it was entered. #32's device pass found
+the cost: the next thrower looked at the last player's darts until their own
+first dart landed. #69 splits the selector in `play/leg.ts` in two:
+
+- **`stripVisit(state)`** feeds the three dart slots on both boards. It is
+  `current_visit` alone, so after a third dart, a bust or a checkout that only
+  wins the leg the next thrower sees three empty slots (a leg-winning checkout
+  is empty anyway, since `legInPlay` has rolled on to a leg with no visits). The
+  one exception is a won match: nobody throws next, so the winning darts stay,
+  agreeing with the end notice and the sheet's checkout row.
+- **`latestVisit(leg)`** is #24's rule, kept for the readers that need the visit
+  that just finished: the bust line, the x01 visit total and the leg sheet's
+  `finishingVisit`. Reading `previous_visit` alone would keep the bust line up
+  through the next player's whole visit. Keeping the total on this rule is what
+  leaves #24's "shows 180 for the visit" on screen after the third dart, beside
+  an empty strip, until the next dart lands.
+
+Jack chose to clear immediately rather than hold the third dart for a moment.
+A hold would be the first timer on the play screen and a piece of state the
+payload does not have. The third dart is confirmed by the turn visibly passing,
+and undo brings the visit back with nothing chosen on the client, because the
+server reopens it as `current_visit`.
+
 #### Sixty-three throws, not sixty-two
 
 #24 said 62 twice, in an acceptance criterion and in a test requirement. The
@@ -1660,6 +1686,14 @@ The diff is keyed on the payload's identity rather than the view's: react-query
 returns the same `MatchState` object until a new response replaces it, so the
 effect fires exactly once per payload. The first payload reports nothing, or a
 board opened mid-match would announce every already-closed number at once.
+
+#### The visit strip
+
+The strip under the board is the only feedback a dart at a non-target gives.
+Since #69 it reads `stripVisit` exactly as x01's does and clears when the turn
+passes. So a third dart at 12 is never seen in it: the active column moving on
+is what says the dart landed, and undo brings the visit back. Cricket has no
+visit total or bust, so `latestVisit` has no reader on this board.
 
 #### What was verified, and how
 
@@ -1952,8 +1986,10 @@ players would join the first run's.
 #### What the specs prove, and what they cannot
 
 - **x01** plays a scripted 501 double-out best-of-3 to 2-0, asserting the
-  bust (the status line, both darts kept on a visit that scored 0, the
-  remaining restored), the undo (the dart gone, the remaining restored) and the
+  bust (the status line, the visit's total of 0, the remaining restored, and
+  since #69 an empty strip for the next thrower; then an undo that brings the
+  busted visit back with its first dart, and the same bust thrown again), the
+  undo (the dart gone, the remaining restored) and the
   checkout (the leg sheet's `Checkout, D20`) as each happens. Then it checks
   every figure on `/stats` and both players' `/stats/:id` against numbers
   worked out by hand in the spec's header. The 3-dart average is what proves the

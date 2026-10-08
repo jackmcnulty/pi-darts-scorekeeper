@@ -41,7 +41,7 @@
 import type { LegLine, MatchStats } from '../api/history'
 import type { LegState, MatchState, Visit } from '../api/play'
 import { isSingleSided, outcomeVerb } from '../matches/sides'
-import { shownVisit } from './leg'
+import { latestVisit } from './leg'
 
 /** A leg was won and the match goes on. */
 export interface LegSheet {
@@ -121,7 +121,7 @@ export function winnerName(state: MatchState, teamId: number | null): string {
  * sheet omits the row rather than inventing one.
  */
 export function finishingVisit(leg: LegState): Visit | null {
-  const visit = shownVisit(leg)
+  const visit = latestVisit(leg)
   if (visit === null) return null
   // The winning visit belongs to the winning team. A leg whose last visit was
   // somebody else's -- which a reload can produce -- has no checkout to show.

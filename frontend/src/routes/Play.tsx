@@ -49,11 +49,12 @@ import { DEFAULT_MULTIPLIER, dartFor, type KeypadKey, type Multiplier } from '..
 import {
   canUndo,
   isPlayable,
+  latestVisit,
   legInPlay,
   legToUndo,
   mintDartId,
   refusalText,
-  shownVisit,
+  stripVisit,
   VISIT_SIZE,
 } from '../play/leg'
 import { useWakeLock } from '../play/wakeLock'
@@ -142,8 +143,14 @@ export function Play() {
   const leg = legInPlay(match)
   const cards = teamCards(match, leg)
   const singleSided = isSingleSided(match)
-  const visit = shownVisit(leg)
-  const bust = bustOf(visit)
+  // Two visits, deliberately. The dart slots clear the moment the turn passes
+  // (#69). The visit's result -- its total and any bust -- is read from the
+  // visit that just finished and stays until the next dart lands, which is what
+  // keeps #24's "shows 180 for the visit" true and the bust in front of the
+  // player who caused it.
+  const visit = stripVisit(match)
+  const latest = latestVisit(leg)
+  const bust = bustOf(latest)
   const playable = isPlayable(match)
   // One flag for both mutations: a dart and an undo are both a write against
   // the same leg, and letting one start while the other is in flight is how a
@@ -218,12 +225,12 @@ export function Play() {
           })}
         </div>
 
-        {visit !== null && visit.darts.length > 0 && (
+        {latest !== null && latest.darts.length > 0 && (
           <span
             className="play__visit-total tnum"
-            aria-label={`Visit scored ${String(visitTotal(visit))}`}
+            aria-label={`Visit scored ${String(visitTotal(latest))}`}
           >
-            {visitTotal(visit)}
+            {visitTotal(latest)}
           </span>
         )}
 

@@ -312,6 +312,134 @@ describe('entering a dart', () => {
 })
 
 // --------------------------------------------------------------------------
+// The visit strip when the turn passes (#69)
+// --------------------------------------------------------------------------
+
+/** The three slots, as a screen reader hears them. */
+function slots(): (string | null)[] {
+  return within(screen.getByRole('group', { name: 'This visit' }))
+    .getAllByLabelText(/^Dart \d, /)
+    .map((slot) => slot.getAttribute('aria-label'))
+}
+
+const EMPTY = ['Dart 1, not thrown', 'Dart 2, not thrown', 'Dart 3, not thrown']
+
+describe('the visit strip when the turn passes', () => {
+  // Cricket scores no visit and has no bust, so `score_before`/`score_after`
+  // are zero throughout, as the server sends them.
+  const twoDarts = visit({
+    scoreBefore: 0,
+    scoreAfter: 0,
+    labels: ['T20', '19'],
+    isComplete: false,
+  })
+  const threeDarts = visit({ scoreBefore: 0, scoreAfter: 0, labels: ['T20', '19', '12'] })
+
+  it('clears for the next thrower once a third dart lands, even one at 12', async () => {
+    // The 12 moves no mark, and the strip clears as it lands: the column
+    // passing to Dad is what says it was recorded (Jack's call on #69).
+    const user = userEvent.setup()
+    current = cricket({ marks: [{ 20: 3, 19: 1 }, {}], dartsThrown: 2, currentVisit: twoDarts })
+    responses = [
+      cricket({
+        marks: [{ 20: 3, 19: 1 }, {}],
+        thrower: 1,
+        dartsThrown: 3,
+        previousVisit: threeDarts,
+      }),
+    ]
+    renderApp('/play/42')
+    await board()
+    expect(slots()).toEqual(['Dart 1, T20', 'Dart 2, 19', 'Dart 3, not thrown'])
+
+    await user.click(screen.getByRole('button', { name: /^12, single/ }))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^Dad, .*throwing now$/)).toBeInTheDocument()
+    })
+    expect(slots()).toEqual(EMPTY)
+  })
+
+  it('is empty after a dart that wins only the leg', async () => {
+    current = cricket({
+      legId: 7,
+      dartsThrown: 21,
+      winnerTeamId: 1,
+      legsWon: [1, 0],
+      previousVisit: threeDarts,
+      activeLeg: cricket({ legId: 8, legIndex: 1, thrower: 1 }).current_leg,
+    })
+    renderApp('/play/42')
+    await board()
+
+    expect(slots()).toEqual(EMPTY)
+  })
+
+  it('keeps the winning darts once the match is won', async () => {
+    current = cricket({
+      status: 'complete',
+      winner: 1,
+      winnerTeamId: 1,
+      legsWon: [2, 0],
+      dartsThrown: 21,
+      thrower: null,
+      previousVisit: visit({ scoreBefore: 0, scoreAfter: 0, labels: ['25', 'BULL'] }),
+    })
+    renderApp('/play/42')
+    await board()
+
+    expect(slots()).toEqual(['Dart 1, 25', 'Dart 2, BULL', 'Dart 3, not thrown'])
+  })
+
+  it('brings the previous visit back, with its darts, when its third dart is undone', async () => {
+    const user = userEvent.setup()
+    current = cricket({ thrower: 1, dartsThrown: 3, previousVisit: threeDarts })
+    responses = [cricket({ thrower: 0, dartsThrown: 2, currentVisit: twoDarts })]
+    renderApp('/play/42')
+    await board()
+    expect(slots()).toEqual(EMPTY)
+
+    await user.click(screen.getByRole('button', { name: 'UNDO' }))
+
+    await waitFor(() => {
+      expect(slots()).toEqual(['Dart 1, T20', 'Dart 2, 19', 'Dart 3, not thrown'])
+    })
+    expect(screen.getByLabelText(/^Jack, .*throwing now$/)).toBeInTheDocument()
+  })
+
+  it('clears in a practice match too, where the turn passes back to the same player', async () => {
+    const user = userEvent.setup()
+    const teams = practiceTeams()
+    current = cricket({ teams, legsWon: [0], dartsThrown: 3, previousVisit: threeDarts })
+    responses = [
+      cricket({
+        teams,
+        legsWon: [0],
+        dartsThrown: 4,
+        previousVisit: threeDarts,
+        currentVisit: visit({
+          visitIndex: 1,
+          scoreBefore: 0,
+          scoreAfter: 0,
+          labels: ['12'],
+          isComplete: false,
+        }),
+      }),
+    ]
+    renderApp('/play/42')
+    await board()
+    expect(slots()).toEqual(EMPTY)
+    expect(screen.getByLabelText('Jack, 0 legs finished, throwing now')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /^12, single/ }))
+
+    await waitFor(() => {
+      expect(slots()).toEqual(['Dart 1, 12', 'Dart 2, not thrown', 'Dart 3, not thrown'])
+    })
+  })
+})
+
+// --------------------------------------------------------------------------
 // The things that are not a board
 // --------------------------------------------------------------------------
 
