@@ -15,7 +15,7 @@
  */
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { http, HttpResponse } from 'msw'
+import { delay, http, HttpResponse } from 'msw'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { DartWrite, MatchState } from '../api/play'
 import '../styles/global.css'
@@ -321,6 +321,50 @@ describe('the match sheet', () => {
     await screen.findByRole('dialog', { name: 'Match complete' })
     // 59.3 is the match figure from the report, not the mean of the leg lines.
     expect(await screen.findByLabelText(/Jack, 59.3 three-dart average/)).toBeInTheDocument()
+  })
+
+  it('shows the whole match, not the report the leg sheet cached (#72)', async () => {
+    // The leg 1 sheet fetches the report while it says only leg 1's figures,
+    // and the deciding leg is thrown well inside `STALE_TIME_MS`. Before #72
+    // the match sheet mounted on that cached report and showed leg 1 as the
+    // match -- in #32's spec 1, Ava "55.7, 27 darts" instead of 57.8 over 52.
+    let report = matchStats(
+      [{ legId: 7, legIndex: 0, playerId: JACK, average: 55.7, dartsThrown: 27, won: true }],
+      [{ playerId: JACK, name: 'Jack', average: 55.7, darts: 27 }],
+    )
+    let slow = false
+    server.use(
+      http.get('*/api/stats/matches/:matchId', async () => {
+        // The whole-match report is held back, so that whatever the sheet
+        // shows while it is in flight is on screen long enough to be seen.
+        if (slow) await delay(200)
+        return HttpResponse.json(report)
+      }),
+    )
+    responses = [
+      legWon({ bestOf: 3, legIndex: 0, legsWon: [1, 0] }),
+      matchWon({ bestOf: 3, legIndex: 1, legsWon: [2, 0] }),
+    ]
+    renderApp('/play/42')
+    await throwADart()
+    await screen.findByRole('dialog', { name: 'Leg 1 complete' })
+    expect(await screen.findByLabelText(/Jack, 55.7 three-dart average/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    report = matchStats(
+      [{ legId: 8, legIndex: 1, playerId: JACK, average: 60.1, dartsThrown: 25, won: true }],
+      [{ playerId: JACK, name: 'Jack', average: 57.8, darts: 52 }],
+    )
+    slow = true
+    await throwADart()
+
+    const sheet = await screen.findByRole('dialog', { name: 'Match complete' })
+    // Not even for a frame: the leg 1 figures must never be on the match sheet,
+    // so a refetch that paints the cached report first would fail here too.
+    expect(within(sheet).queryByLabelText(/55.7 three-dart average/)).not.toBeInTheDocument()
+    expect(
+      await within(sheet).findByLabelText('Jack, 57.8 three-dart average, 52 darts thrown'),
+    ).toBeInTheDocument()
   })
 
   it('links to the dart-by-dart breakdown', async () => {

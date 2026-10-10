@@ -175,12 +175,16 @@ test('501 double-out best-of-3: bust, undo, checkout, and the stats that follow'
   await expect(matchSheet.getByText('Ava won the match')).toBeVisible()
   await expect(matchSheet.getByRole('listitem', { name: 'Ava, 2 legs, winner' })).toBeVisible()
   await expect(matchSheet.getByRole('listitem', { name: 'Ben, 0 legs' })).toBeVisible()
-  // The sheet's "Match average" lines are deliberately not asserted. They come
-  // from the match-stats query the leg 1 sheet already fetched, which stays
-  // fresh for STALE_TIME_MS (5 s) and is not invalidated by a dart -- so a
-  // deciding leg thrown in under five seconds, as this one is, shows leg 1's
-  // figures. No person throws a leg that fast. Filed as #72, whose fix should
-  // add the assertions: Ava 57.8 over 52 darts, Ben 45.0 over 54.
+  // The whole match, not leg 1 (#72). Leg 2 is thrown in a few seconds, well
+  // inside the five for which the leg 1 sheet's report used to stay fresh, and
+  // the sheet used to show that report: Ava 55.7 over 27 darts. 3 x 1002 / 52
+  // = 57.8; Ben's 45s average 45.0 over 54 darts.
+  await expect(
+    matchSheet.getByRole('listitem', { name: 'Ava, 57.8 three-dart average, 52 darts thrown' }),
+  ).toBeVisible()
+  await expect(
+    matchSheet.getByRole('listitem', { name: 'Ben, 45.0 three-dart average, 54 darts thrown' }),
+  ).toBeVisible()
 
   // ---- The stats screens ----
   await page.goto('/stats')
