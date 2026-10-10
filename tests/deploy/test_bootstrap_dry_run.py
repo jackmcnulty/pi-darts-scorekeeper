@@ -328,3 +328,124 @@ def test_nothing_is_ever_shared_out_of_the_state_directory(dry_run) -> None:
     samba_steps = [line for line in run.plan if "samba" in line or "smb" in line]
     assert samba_steps
     assert not any(str(run.root / "var/lib/darts") in line for line in samba_steps)
+
+
+# --- HTTPS (#71) --------------------------------------------------------------
+
+CADDYFILE = REPO_ROOT / "deploy" / "Caddyfile"
+
+
+@pytest.fixture
+def tls_source(tmp_path: Path) -> Path:
+    """What `scripts/make-cert.sh` leaves on the Mac, as copied to the Pi.
+
+    Placeholders: bootstrap checks the files are there and leaves reading them to
+    `caddy validate`, which a dry run never calls. Outside the redirected root so
+    the creates-nothing assertion is not tripped by the fixture itself.
+    """
+    source = tmp_path.parent / f"{tmp_path.name}-tls"
+    source.mkdir()
+    (source / "darts-leaf.crt").write_text("certificate\n")
+    (source / "darts-leaf.key").write_text("key\n")
+    return source
+
+
+@pytest.fixture
+def https_run(dry_run, tmp_path: Path):
+    def run(*args: str, **overrides: str) -> DryRun:
+        return dry_run(*args, BOOTSTRAP_CADDY_DIR=str(tmp_path / "etc/caddy"), **overrides)
+
+    return run
+
+
+def test_dry_run_with_a_certificate_creates_nothing(https_run, tls_source: Path) -> None:
+    run = https_run("--dry-run", "--tls-from", str(tls_source))
+    assert run.result.returncode == 0, run.result.stderr
+    assert list(run.root.rglob("*")) == []
+
+
+def test_caddy_comes_from_debians_archive(https_run, tls_source: Path) -> None:
+    """Planned or already there, like Samba. Not a container: deploy/Caddyfile says why."""
+    out = https_run("--dry-run", "--tls-from", str(tls_source)).result.stdout
+    assert "caddy is installed" in out or ("apt-get install" in out and "caddy" in out)
+
+
+def test_the_certificate_is_installed_with_a_key_only_caddy_can_read(
+    https_run, tls_source: Path
+) -> None:
+    run = https_run("--dry-run", "--tls-from", str(tls_source))
+    tls = run.root / "etc/darts/tls"
+    assert run.planned("install -d -m 0750 -o root -g caddy", str(tls))
+    assert run.planned("-m 0644", str(tls_source / "darts-leaf.crt"), str(tls / "cert.pem"))
+    assert run.planned(
+        "-m 0640 -o root -g caddy", str(tls_source / "darts-leaf.key"), str(tls / "key.pem")
+    )
+
+
+def test_the_installed_paths_are_the_ones_the_caddyfile_serves() -> None:
+    caddyfile = CADDYFILE.read_text(encoding="utf-8")
+    assert "tls /etc/darts/tls/cert.pem /etc/darts/tls/key.pem" in caddyfile
+
+
+def test_without_tls_from_an_installed_certificate_is_kept(https_run, tmp_path: Path) -> None:
+    """The operator's file, like darts.env. Only --tls-from replaces it (a renewal)."""
+    tls = tmp_path / "etc/darts/tls"
+    tls.mkdir(parents=True)
+    (tls / "cert.pem").write_text("installed\n")
+    (tls / "key.pem").write_text("installed\n")
+
+    run = https_run("--dry-run")
+    assert run.result.returncode == 0, run.result.stderr
+    assert run.planned("skip", "certificate in", str(tls))
+    assert not any("cert.pem" in line for line in run.plan if line.startswith("plan: "))
+    assert "no HTTPS certificate" not in run.result.stderr
+
+
+def test_a_plan_without_any_certificate_warns(https_run) -> None:
+    """A real run refuses before changing anything; a plan says what is missing."""
+    run = https_run("--dry-run")
+    assert run.result.returncode == 0
+    assert "no HTTPS certificate" in run.result.stderr
+    assert "make-cert.sh" in run.result.stderr
+
+
+def test_tls_from_a_directory_without_the_files_is_refused(https_run, tmp_path: Path) -> None:
+    empty = tmp_path.parent / f"{tmp_path.name}-empty"
+    empty.mkdir()
+    run = https_run("--dry-run", "--tls-from", str(empty))
+    assert run.result.returncode != 0
+    assert "no darts-leaf.crt" in run.result.stderr
+    assert run.plan == [], "refused before planning anything"
+
+
+def test_tls_from_needs_a_directory(https_run) -> None:
+    run = https_run("--dry-run", "--tls-from")
+    assert run.result.returncode != 0
+    assert "--tls-from needs a directory" in run.result.stderr
+
+
+def test_the_caddyfile_is_validated_before_caddy_restarts(https_run, tls_source: Path) -> None:
+    """A broken Caddyfile or certificate fails bootstrap, not the next request."""
+    run = https_run("--dry-run", "--tls-from", str(tls_source))
+    target = str(run.root / "etc/caddy/Caddyfile")
+    plan = run.plan
+    install = next(i for i, line in enumerate(plan) if "install" in line and target in line)
+    check = next(i for i, line in enumerate(plan) if "check_caddy_config" in line)
+    cert = next(i for i, line in enumerate(plan) if "cert.pem" in line)
+    restart = next(i for i, line in enumerate(plan) if "systemctl restart caddy" in line)
+    assert str(CADDYFILE) in plan[install]
+    assert cert < check, "validating loads the certificate, so it must be in place first"
+    assert install < check < restart
+    out = run.result.stdout
+    assert "systemctl enable caddy" in out or "caddy is enabled" in out
+
+
+def test_the_url_it_prints_is_https_by_name(https_run, tls_source: Path) -> None:
+    """The certificate covers darts.local and no address, so an IP URL would be a lie."""
+    err = https_run("--dry-run", "--tls-from", str(tls_source)).result.stderr
+    assert "https://darts.local/" in err
+    assert "http://" not in err
+
+
+def test_help_documents_tls_from(dry_run) -> None:
+    assert "--tls-from" in dry_run("--help").result.stdout

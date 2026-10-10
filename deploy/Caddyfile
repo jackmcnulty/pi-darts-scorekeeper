@@ -1,0 +1,42 @@
+# HTTPS in front of the app, so the phone gets a secure context (#71).
+#
+# Safari gives a page `navigator.wakeLock` (#24) and service workers (#21) only
+# over HTTPS or on localhost. The phone reaches the Pi over the LAN, so plain
+# HTTP left both silently switched off. This terminates TLS on 443 with the
+# certificate scripts/make-cert.sh issues, and hands every request to the app
+# on loopback.
+#
+# What Caddy is, and why it is on the host. Caddy is a single-binary web server
+# whose whole configuration for this job is the few lines below, and which
+# redirects plain HTTP to HTTPS by itself. It comes from Debian's own archive
+# (bookworm/main, 2.6.2), installed by scripts/bootstrap-pi.sh -- on the host,
+# like Samba, rather than as a second container, because then deploy.sh still
+# only ever ships the one image it builds and the Pi never pulls one. Debian
+# security updates patch it with everything else. It costs a few tens of MB of
+# RAM on a 4 GB Pi.
+#
+# Installed whole at /etc/caddy/Caddyfile by bootstrap, replaced on every run:
+# a repository artefact, like compose.yaml, not an operator file.
+{
+	# The certificate is ours and fixed, so Caddy must never try to obtain or
+	# renew one: there is nothing on the internet that can vouch for a .local
+	# name, and a dartboard that is usually off has no business trying. The
+	# HTTP-to-HTTPS redirect is kept.
+	auto_https disable_certs
+}
+
+# The name, not an address. The certificate is for darts.local only, so
+# https://<ip>/ has no site here and fails the handshake rather than serving a
+# certificate warning. bootstrap-pi.sh warns if the hostname is not `darts`.
+#
+# No HSTS header, deliberately. If HTTPS ever has to be rolled back, a phone
+# that has been told "HTTPS only" for this name is locked out of a LAN box
+# until the header expires.
+darts.local {
+	# Installed by `bootstrap-pi.sh --tls-from`; never in the repository.
+	tls /etc/darts/tls/cert.pem /etc/darts/tls/key.pem
+
+	# The port deploy/compose.yaml publishes on 127.0.0.1 only. Loopback, so
+	# nothing on the LAN can reach the app except through here.
+	reverse_proxy 127.0.0.1:8000
+}

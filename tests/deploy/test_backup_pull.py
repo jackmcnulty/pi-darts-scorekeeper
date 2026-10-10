@@ -19,12 +19,16 @@ against a stand-in Linux host and is recorded in docs/dr.md.
 """
 
 import calendar
+import contextlib
+import http.server
 import shlex
 import shutil
 import socket
 import sqlite3
+import ssl
 import subprocess
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -524,3 +528,85 @@ def test_help_is_on_stdout_and_exits_zero() -> None:
     result = subprocess.run([str(PULL), "--help"], capture_output=True, text=True, check=False)
     assert result.returncode == 0
     assert "BACKUP_PULL_URL" in result.stdout
+
+
+# --- over HTTPS, as the Pi serves it since #71 ----------------------------------
+
+MAKE_CERT = REPO_ROOT / "scripts" / "make-cert.sh"
+
+
+def _issue(directory: Path) -> Path:
+    """A root and a leaf from the real script, for `localhost` so curl can reach it."""
+    subprocess.run(
+        [str(MAKE_CERT)],
+        env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": str(directory),
+             "MAKE_CERT_DIR": str(directory), "MAKE_CERT_NAME": "localhost"},
+        capture_output=True, text=True, check=True, timeout=60,
+    )  # fmt: skip
+    return directory
+
+
+@contextlib.contextmanager
+def _https_server(certs: Path, body: bytes) -> Iterator[str]:
+    """Serves `body` at /api/export/db over TLS, the way Caddy fronts the app."""
+
+    class Export(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args: object) -> None:
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Export)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certs / "darts-leaf.crt", certs / "darts-leaf.key")
+    server.socket = context.wrap_socket(server.socket, server_side=True)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"https://localhost:{server.server_address[1]}/api/export/db"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_a_pull_over_https_trusts_the_root_it_is_given(tmp_path: Path, dest: Path) -> None:
+    good = _database(tmp_path / "good.db")
+    certs = _issue(tmp_path / "certs")
+    with _https_server(certs, good.read_bytes()) as url:
+        result = pull(dest, url, BACKUP_PULL_CACERT=str(certs / "darts-root.crt"))
+    assert result.returncode == 0, result.stderr
+    [copy] = dest.iterdir()
+    assert copy.read_bytes() == good.read_bytes()
+
+
+def test_the_root_is_found_where_make_cert_keeps_it(tmp_path: Path, dest: Path) -> None:
+    """On the Mac that made the certificate there is nothing to configure."""
+    home = tmp_path / "home"
+    certs = _issue(home / "Library" / "Application Support" / "darts-tls")
+    good = _database(tmp_path / "good.db")
+    with _https_server(certs, good.read_bytes()) as url:
+        result = pull(dest, url, HOME=str(home))
+    assert result.returncode == 0, result.stderr
+
+
+def test_an_untrusted_certificate_is_a_failure_that_says_so(tmp_path: Path, dest: Path) -> None:
+    """Not "probably switched off": the Pi answered, and the answer was not trusted."""
+    good = _database(tmp_path / "good.db")
+    served = _issue(tmp_path / "served")
+    other = _issue(tmp_path / "other")
+    with _https_server(served, good.read_bytes()) as url:
+        result = pull(dest, url, BACKUP_PULL_CACERT=str(other / "darts-root.crt"))
+    assert result.returncode == 1
+    assert "curl exit 60" in result.stderr
+    assert "certificate is not trusted" in result.stderr
+    assert contents(dest) == {}
+
+
+def test_the_default_url_is_https_by_name() -> None:
+    result = subprocess.run([str(PULL), "--help"], capture_output=True, text=True, check=False)
+    assert "https://darts.local/api/export/db" in result.stdout
+    assert "BACKUP_PULL_CACERT" in result.stdout

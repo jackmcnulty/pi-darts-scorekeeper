@@ -28,14 +28,22 @@ services:
     env_file: /etc/darts/darts.env
 
     ports:
-      # Published on 0.0.0.0 so the phone can reach it over the LAN; this box
-      # is on a home network behind a router and serves no authentication.
+      # Loopback only (#71). The phone reaches the app through Caddy on the
+      # host, over HTTPS (deploy/Caddyfile), because plain HTTP on the LAN is
+      # not a secure context and Safari then withholds the wake lock and the
+      # service worker. Publishing 8000 on 0.0.0.0 as well would leave an
+      # insecure way in for the phone to end up on by accident.
+      #
+      # Everything else that talks to the app is on the host already and keeps
+      # plain HTTP on loopback: Caddy, the darts-snapshot unit, healthcheck.sh
+      # over SSH, and the image's own HEALTHCHECK inside the container.
       #
       # The container side is fixed at 8000 while DARTS_PORT is configurable,
-      # so changing DARTS_PORT in the env file means changing this line too.
+      # so changing DARTS_PORT in the env file means changing this line too,
+      # and the reverse_proxy line in deploy/Caddyfile.
       # Compose cannot interpolate from env_file -- those variables are handed
       # to the container, not to the parser -- so this cannot be automatic.
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
 
     volumes:
       # Bind mounts rather than named volumes, because these files have to be
