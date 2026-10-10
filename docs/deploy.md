@@ -3,6 +3,9 @@
 How the scorekeeper is packaged and deployed, and what has to be checked on real
 hardware. Tickets #28, #29 and #30, and #71's HTTPS.
 
+To *do* any of this, follow [runbook.md](runbook.md), which has every step in
+order. This page explains why it works the way it does.
+
 There is no systemd unit for the app and there should not be one.
 `restart: unless-stopped` in `deploy/compose.yaml` provides both halves of what a
 unit would do -- start at boot and restart after a crash -- given that

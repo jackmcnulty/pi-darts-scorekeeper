@@ -132,6 +132,9 @@ docs/              architecture and data-model notes
 - [docs/data-model.md](docs/data-model.md)
 - [docs/durability.md](docs/durability.md) — shutdown checkpoint, boot integrity
   check, backup and restore.
+- [docs/runbook.md](docs/runbook.md) — **start here to set up, release,
+  deploy, back up, restore or wipe**: every step as a command, with what a pass
+  looks like.
 - [docs/deploy.md](docs/deploy.md) — packaging, host layout, and the manual Pi
   verification checklist.
 - [docs/ops.md](docs/ops.md) — day-to-day operation (logs, restart, deploy,
