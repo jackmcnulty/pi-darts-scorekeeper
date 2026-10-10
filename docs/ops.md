@@ -283,9 +283,9 @@ manifest, not a curl error.
 
 | Item | Result | How, and notes |
 | --- | --- | --- |
-| H1 No certificate warning | not yet run | Jack, on the phone. |
-| H2 Wake lock (A4 over HTTPS) | not yet run | Jack, on the phone. |
-| H3 Offline shell, Pi off | not yet run | Jack, on the phone. |
+| H1 No certificate warning | **pass** | Jack, on the phone, 2026-10-10, against `69fa192`: root installed and trusted, `https://darts.local/` loads with no warning, icon re-added. |
+| H2 Wake lock (A4 over HTTPS) | **pass** | Jack, on the phone, 2026-10-10. A4 now passes over HTTPS; #32's A4 failure below was the plain-HTTP address. |
+| H3 Offline shell, Pi off | **pass** | Jack, on the phone, 2026-10-10. The first Pi-off cold start anyone has run. |
 | H4 Scripts against the new address | **pass** | 2026-10-10, from the Mac against the real Pi, `69fa192`. Bootstrap with `--tls-from` installed Caddy 2.6.2-5, and `caddy validate` passed. `deploy.sh` exit 0 in 63 s (healthy after 3 s). `healthcheck.sh` printed `69fa192`. `backup-pull.sh` pulled 200704 bytes, `integrity ok`, over HTTPS with `--cacert`. The snapshot timer's first run after the deploy (13:06:43) logged its manifest. Also measured: `http://darts.local/` is a 308 to `https://darts.local/`, there is no `Strict-Transport-Security`, `:8000` is refused from the LAN (listening on `127.0.0.1` only), `https://<ip>/` fails the handshake, and `curl` without the root is exit 60. |
 
 Rehearsed in a browser, not on the phone: Playwright's WebKit at 402×781,
