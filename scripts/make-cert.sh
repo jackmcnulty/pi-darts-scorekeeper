@@ -162,8 +162,9 @@ serial() {
 if [ -f "$root_key" ] && [ -f "$root_crt" ]; then
   log "reusing the root in ${DIR} (the phone already trusts it)"
 else
-  [ ! -f "$root_key" ] && [ ! -f "$root_crt" ] ||
+  if [ -f "$root_key" ] || [ -f "$root_crt" ]; then
     die "only half a root in ${DIR}; delete both darts-root.* files to start over"
+  fi
   log "making a new root, valid ${ROOT_DAYS} days, for ${NAME} only"
   # P-256: smaller and faster than RSA on the Pi, and accepted by iOS.
   openssl ecparam -genkey -name prime256v1 -noout -out "$root_key"
