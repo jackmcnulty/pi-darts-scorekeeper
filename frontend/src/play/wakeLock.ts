@@ -12,9 +12,9 @@
  * TypeScript will not warn about a browser that does not have it -- and jsdom
  * does not, which means an unguarded `navigator.wakeLock.request` throws in
  * every test that renders this screen. It is also genuinely missing on older
- * iOS and, more to the point here, outside a secure context: the Pi serves this
- * app over plain HTTP on the LAN. So the feature test is load-bearing rather
- * than defensive. The config uses `recommendedTypeChecked` rather than
+ * iOS and outside a secure context -- which the phone was in until #71 moved the
+ * Pi to https://darts.local/, and still is if the certificate is not trusted.
+ * So the feature test is load-bearing rather than defensive. The config uses `recommendedTypeChecked` rather than
  * `strictTypeChecked`, so `no-unnecessary-condition` is off and the guard lints
  * clean.
  *
