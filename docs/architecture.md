@@ -1866,6 +1866,16 @@ screen. The match sheet does come back, because `is_complete` is durable.
 Per-player leg averages come from `/stats`, not from `TeamLegResponse` — that
 one is per *team*, and #26 asks for per player.
 
+That report is the one read the play screen's writes do not answer, so since
+#72 a dart or undo that succeeds resets `matchStatsKey` in `api/play.ts`. Before,
+the leg-1 sheet's copy stayed fresh for `STALE_TIME_MS`, and a deciding leg
+finished inside five seconds put leg 1's figures on the match sheet. A reset
+rather than an invalidation, because an invalidated query keeps its old data on
+screen while it refetches — the flash this was about. On every dart rather than
+at a leg's end, because every dart moves the report, and it costs no request:
+`resetQueries` refetches only what is mounted, and nothing on the board reads
+`/stats` until a sheet is due.
+
 #### Saying "these darts counted but scored nothing" three ways
 
 A strike-through alone reads as deletion — as though the darts were taken back,
@@ -2199,6 +2209,9 @@ person throws that fast; on the phone the cache is stale by then and refetches
 on mount, which at most flashes the old figures. Spec 1 asserts the sheet's
 winner and leg tally and not its averages, and says why. Not fixed here: #32 is
 not a feature ticket. Filed as #72, whose fix should add those assertions.
+
+Fixed in #72 (see the #26 notes on the completion sheets), and spec 1 now
+asserts the match sheet's averages: Ava 57.8 over 52 darts, Ben 45.0 over 54.
 
 #### Changed since
 

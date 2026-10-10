@@ -19,10 +19,30 @@
  * retry safe instead: the same id replayed inserts nothing and returns the
  * state as it stands, so `Play.tsx` keeps the id of a failed dart and re-sends
  * it unchanged.
+ *
+ * The one thing a dart does throw away (#72)
+ * ------------------------------------------
+ * The match report behind both completion sheets (`useMatchStats`) is a
+ * different answer, and no write returns it. It changes with every dart, so a
+ * dart or an undo that succeeds drops the cached copy rather than leaving it
+ * fresh for `STALE_TIME_MS`: the leg 1 sheet fetches it, and a deciding leg
+ * finished inside those five seconds would otherwise put leg 1's figures on
+ * the match sheet as the match's.
+ *
+ * Reset, not invalidate. Invalidating keeps the old report as data while the
+ * new one is fetched, so the sheet would still paint leg 1 first -- the flash
+ * #72 describes on the phone. A reset leaves no data, and the sheet shows no
+ * averages until the whole match's arrive. Every dart rather than "when a leg
+ * ends" because every dart moves the report, and because it costs nothing:
+ * `resetQueries` refetches only queries something is observing, and the board
+ * reads no stats -- the sheets mount `useMatchStats` only once one is due. That
+ * is still not the client guessing at anything: it forgets an answer it knows
+ * is out of date and asks again when it needs one.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { UseMutationResult, UseQueryResult } from '@tanstack/react-query'
+import type { QueryClient, UseMutationResult, UseQueryResult } from '@tanstack/react-query'
 import { api, unwrap } from './client'
+import { matchStatsKey } from './history'
 import { MATCHES_KEY } from './matches'
 import type { components } from './schema'
 
@@ -52,6 +72,17 @@ export function useMatchState(matchId: number): UseQueryResult<MatchState> {
   })
 }
 
+/**
+ * What a successful dart or undo does to the cache. See the module docstring.
+ *
+ * The reset is not awaited: when a sheet is mounted it refetches, and the
+ * mutation has no business waiting on a read to call itself done.
+ */
+function written(queryClient: QueryClient, matchId: number, state: MatchState): void {
+  queryClient.setQueryData(matchStateKey(matchId), state)
+  void queryClient.resetQueries({ queryKey: matchStatsKey(matchId), exact: true })
+}
+
 export interface DartInput {
   legId: number
   body: DartWrite
@@ -62,7 +93,7 @@ export function useRecordDart(matchId: number): UseMutationResult<MatchState, Er
   return useMutation({
     mutationFn: ({ legId, body }: DartInput) =>
       unwrap(api.POST('/api/legs/{leg_id}/darts', { params: { path: { leg_id: legId } }, body })),
-    onSuccess: (state) => queryClient.setQueryData(matchStateKey(matchId), state),
+    onSuccess: (state) => written(queryClient, matchId, state),
   })
 }
 
@@ -71,6 +102,6 @@ export function useUndoDart(matchId: number): UseMutationResult<MatchState, Erro
   return useMutation({
     mutationFn: (legId: number) =>
       unwrap(api.POST('/api/legs/{leg_id}/undo', { params: { path: { leg_id: legId } } })),
-    onSuccess: (state) => queryClient.setQueryData(matchStateKey(matchId), state),
+    onSuccess: (state) => written(queryClient, matchId, state),
   })
 }
