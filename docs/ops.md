@@ -9,6 +9,20 @@ works is in [deploy.md](deploy.md), [durability.md](durability.md) and
 starting `scripts/` run on the Mac from the repository. Everything else runs
 over `ssh pi@darts.local`.
 
+**Talking to the app from the Mac goes over HTTPS** (#71), to
+`https://darts.local/`, with a certificate from our own root, which nothing on
+the Mac trusts by default. Every `curl` here passes it explicitly. Set this once
+per terminal; it is where [scripts/make-cert.sh](../scripts/make-cert.sh)
+keeps the root:
+
+```bash
+export DARTS_CA="$HOME/Library/Application Support/darts-tls/darts-root.crt"
+```
+
+Port 8000 is no longer reachable from the LAN. It is published on the Pi's
+loopback only, for Caddy, the snapshot timer and `healthcheck.sh`, which all run
+on the Pi itself.
+
 **If your Pi user is not `pi`**, read every `pi@darts.local` here and in the
 linked docs as your user, and bootstrap with
 `sudo BOOTSTRAP_USER=<you> scripts/bootstrap-pi.sh`. That user **must be uid
@@ -27,7 +41,7 @@ first user Raspberry Pi Imager creates always is.
 ## Is it up?
 
 ```bash
-curl -s http://darts.local:8000/api/healthz
+curl -s --cacert "$DARTS_CA" https://darts.local/api/healthz
 ```
 
 | `status` | HTTP | Meaning |
@@ -93,7 +107,7 @@ scripts/deploy.sh --host pi@darts.local
 
 ```bash
 git rev-parse --short HEAD
-curl -s http://darts.local:8000/api/version
+curl -s --cacert "$DARTS_CA" https://darts.local/api/version
 ```
 
 It refuses a dirty worktree: commit or stash first. It runs the backend tests
@@ -113,7 +127,7 @@ scripts/rollback.sh --host pi@darts.local                  # to the previous one
 scripts/rollback.sh --host pi@darts.local --to 1a2b3c4     # to a specific one
 ```
 
-**Pass:** `curl -s http://darts.local:8000/api/version` reports the sha you
+**Pass:** `curl -s --cacert "$DARTS_CA" https://darts.local/api/version` reports the sha you
 rolled back to. **Rollback restores the image, not the schema.** A bad
 migration needs a [restore](#restore) from the backup the deploy took.
 How the previous sha is chosen:
@@ -155,6 +169,133 @@ scripts/backup-pull.sh
 Every message it can print, and what it means:
 [dr.md → Taking a copy](dr.md#taking-a-copy).
 
+## Trusting the Pi's certificate
+
+The phone reaches the app at **`https://darts.local/`**. Safari gives a page the
+wake lock (#24) and a service worker (#21) only over HTTPS, so over the old
+`http://darts.local:8000` both were silently off: the screen dimmed mid-match
+and there was no offline shell. That was #71.
+
+How it fits together, and why each piece is where it is:
+
+- **A root certificate of our own**, made once on the Mac by
+  `scripts/make-cert.sh`. Its private key never leaves the Mac. It may sign
+  only for `darts.local`, so it cannot be used to impersonate any other site
+  to the phone. **Whoever holds `darts-root.key` can still impersonate
+  `darts.local` to the phone.** Keep it where the script puts it. If it leaks or
+  is lost, delete the directory and start again from step 1. The phone then has
+  to trust the new root (steps 3–4).
+- **A leaf certificate for `darts.local`**, signed by that root, valid 820 days.
+  iOS refuses anything over 825, user-installed root or not. Nothing on the Pi
+  renews or checks it, so the Pi's clock does not matter. The Pi has no RTC
+  battery and boots with a stale clock after every power cut, which would break
+  a short-lived certificate.
+- **Caddy on the Pi**, installed by `bootstrap-pi.sh`, serves it on 443,
+  redirects 80, and proxies to the app on `127.0.0.1:8000`. There is **no HSTS
+  header**, so going back to plain HTTP can never lock the phone out
+  ([deploy.md → HTTPS](deploy.md#https-71)).
+
+### Setting it up (once), and renewing (every ~2 years)
+
+1. **On the Mac**, make the root and the leaf. A second run reuses the root and
+   issues a new leaf: that is the renewal, and then only steps 2 and 5 apply.
+
+   ```bash
+   scripts/make-cert.sh
+   ```
+
+2. **Put the leaf on the Pi** and re-run bootstrap there with it. This needs
+   sudo on the Pi, and it is also how the changed `compose.yaml` (8000 on
+   loopback) reaches an already-bootstrapped Pi. `deploy.sh` refuses to run
+   until it has.
+
+   ```bash
+   ssh jackm@darts.local 'mkdir -p -m 700 darts-tls'
+   scp "$HOME/Library/Application Support/darts-tls/darts-leaf."{crt,key} jackm@darts.local:darts-tls/
+   ssh -t jackm@darts.local 'cd ~/pi-darts-scorekeeper && git pull && sudo BOOTSTRAP_USER=jackm scripts/bootstrap-pi.sh --tls-from ~/darts-tls && rm -r ~/darts-tls'
+   scripts/deploy.sh --host jackm@darts.local
+   ```
+
+   **Pass:** bootstrap ends with `https://darts.local/` and
+   `skip: certificate valid until …`. The deploy exits 0.
+   `curl -s --cacert "$DARTS_CA" https://darts.local/api/healthz` answers, and
+   `curl -sI http://darts.local/` is a redirect to `https://darts.local/`.
+
+3. **Get the root onto the iPhone.** In Finder, open
+   `~/Library/Application Support/darts-tls/` (**Go → Go to Folder**), and
+   AirDrop **`darts-root.crt`** to the phone. Only that file. Never the `.key`
+   files. The phone says **Profile Downloaded**.
+4. **Install it, then trust it.** These are two separate steps, and iOS needs
+   both.
+   - **Settings → General → VPN & Device Management → Darts LAN root →
+     Install**.
+   - **Settings → General → About → Certificate Trust Settings**, and switch on
+     **Darts LAN root (darts.local only)**.
+5. **Re-add the home-screen icon.** `https://darts.local` is a different web
+   app to iOS from `http://darts.local:8000`. Delete the old **Darts** icon,
+   then in Safari open `https://darts.local/` and **Share → Add to Home Screen →
+   Add**. Nothing is lost, because the server holds every match. The app is
+   simply starting fresh in a new origin.
+
+### The #71 checklist, on the phone
+
+Run after the steps above, and record results in
+[the table below](#71-results). Criteria 1–3 of #71 can only be signed off
+here.
+
+**H1. No certificate warning** (criterion 1). Open `https://darts.local/` in
+Safari. **Pass:** the app loads with no "This connection is not private" page,
+and tapping the address bar's site info shows the connection as secure. Then
+open the home-screen icon. **Pass:** it opens straight into the app.
+
+**H2. The screen stays awake** (criterion 2). Run [A4](#a4-wake-lock-through-a-full-match)
+from the home-screen icon. **Pass:** as A4 says.
+
+**H3. The offline shell** (criterion 3). Open the home-screen app once with the
+Pi on and go to a couple of screens, so the service worker installs and caches
+the shell. Close the app (swipe it away). Then switch the Pi **off** at the
+wall. Open the app from the icon. **Pass:** the app's own screens appear, not
+Safari's "cannot open the page". Anything that needs the server shows
+**Cannot reach the scoreboard** rather than a blank page. Switch the Pi back on
+and, once it has booted, the same app works again without reinstalling. This is
+the first time anybody has checked a Pi-off cold start
+([B9](#b9-a-cold-start-from-the-phone) never ran it).
+
+*Optional, if H3 fails:* on the Mac, Safari → **Develop → (the iPhone) →
+darts.local**, needs **Settings → Apps → Safari → Advanced → Web Inspector**
+on the phone. In its console,
+`[isSecureContext, 'wakeLock' in navigator, !!navigator.serviceWorker.controller]`
+should be `[true, true, true]`.
+
+**H4. The scripts against the new address** (criterion 4). From the Mac:
+
+```bash
+scripts/deploy.sh --host jackm@darts.local            # pass: exit 0
+scripts/healthcheck.sh --host jackm@darts.local       # pass: prints the sha
+scripts/backup-pull.sh                                # pass: ==> pulled darts-….db (… integrity ok)
+ssh jackm@darts.local 'journalctl -u darts-snapshot.service --since -15min --no-pager | tail -5'
+```
+
+**Pass** for the last: a run within the last five minutes that logged a
+manifest, not a curl error.
+
+#### #71 results
+
+| Item | Result | How, and notes |
+| --- | --- | --- |
+| H1 No certificate warning | not yet run | Jack, on the phone. |
+| H2 Wake lock (A4 over HTTPS) | not yet run | Jack, on the phone. |
+| H3 Offline shell, Pi off | not yet run | Jack, on the phone. |
+| H4 Scripts against the new address | **pass** | 2026-10-10, from the Mac against the real Pi, `69fa192`. Bootstrap with `--tls-from` installed Caddy 2.6.2-5, and `caddy validate` passed. `deploy.sh` exit 0 in 63 s (healthy after 3 s). `healthcheck.sh` printed `69fa192`. `backup-pull.sh` pulled 200704 bytes, `integrity ok`, over HTTPS with `--cacert`. The snapshot timer's first run after the deploy (13:06:43) logged its manifest. Also measured: `http://darts.local/` is a 308 to `https://darts.local/`, there is no `Strict-Transport-Security`, `:8000` is refused from the LAN (listening on `127.0.0.1` only), `https://<ip>/` fails the handshake, and `curl` without the root is exit 60. |
+
+Rehearsed in a browser, not on the phone: Playwright's WebKit at 402×781,
+loading `https://darts.local/` from the real Pi through a local CONNECT proxy
+(WebKit cannot resolve `.local` itself), with `ignoreHTTPSErrors` because it
+cannot be given a root. It reported `isSecureContext: true`, `wakeLock` present,
+and `/sw.js` registered, activated and controlling the page after a reload. On
+the old plain-HTTP address, #32 measured all three as missing. Whether the
+iPhone trusts the root, and so gets the same, is H1–H3.
+
 ## Restore
 
 [dr.md](dr.md) is the runbook. Start at the scenario that matches what
@@ -188,8 +329,11 @@ A fail is a finding to file, not something to fix during the sitting.
 These were found before the device pass, verified in WebKit on this Mac but
 not on the device. Expect them, and record what the phone actually does.
 
-- **The wake lock cannot work over plain HTTP.** `navigator.wakeLock` exists
-  only in a secure context (HTTPS, or `localhost`). The Pi serves
+- **The wake lock cannot work over plain HTTP.** *Fixed by #71: the app is
+  now served at `https://darts.local/`. Set it up with
+  [Trusting the Pi's certificate](#trusting-the-pis-certificate) before A5. What
+  follows is what #32 found.* `navigator.wakeLock` exists
+  only in a secure context (HTTPS, or `localhost`). The Pi served
   `http://darts.local:8000`, which is neither. Measured in WebKit:
   `isSecureContext` is `true` on `localhost` and `false` on a LAN address, and
   `wakeLock` and `serviceWorker` are both missing on the LAN address. #24 knew
@@ -210,8 +354,10 @@ has toolbars, and the layout was built for the full 402×874 screen.
 
 #### A5. Home-screen install
 
-In Safari, open `http://darts.local:8000/` (or the Pi's address from
-`ssh pi@darts.local 'hostname -I'`). **Share → Add to Home Screen → Add.**
+In Safari, open `https://darts.local/`. That address only, never an IP
+address, which the certificate does not cover. It needs the root trusted first:
+[Trusting the Pi's certificate](#trusting-the-pis-certificate). **Share → Add to
+Home Screen → Add.**
 
 **Pass:** the icon appears named **Darts** (the icon art is a known placeholder).
 Opening it shows no Safari address bar or toolbar. The status bar sits over
@@ -253,8 +399,9 @@ Mode off. Play a full best-of-3 501 between two players, and between visits
 leave the phone untouched for longer than a minute at least three times.
 
 **Pass:** the screen never dims or locks while the play screen is open. It
-locks normally within 30 s of going back to the home screen. **Expected to fail
-over HTTP**: see [Known before you start](#known-before-you-start). Record what
+locks normally within 30 s of going back to the home screen. Over the old
+plain-HTTP address this failed, as expected (#32's result below). It is
+expected to pass over `https://darts.local/`, which is #71's H2. Record what
 happens; if it dims, note after how long. Set Auto-Lock back afterwards.
 
 This match is also the one B4 and B10 need, so finish it.
@@ -322,7 +469,7 @@ From the Mac, on a clean checkout of `main`:
 scripts/deploy.sh --host pi@darts.local
 ```
 
-**Pass:** exit 0, and `curl -s http://darts.local:8000/api/healthz` shows
+**Pass:** exit 0, and `curl -s --cacert "$DARTS_CA" https://darts.local/api/healthz` shows
 `healthy`, `"detail":null`, and `git_sha` = `git rev-parse --short HEAD`.
 `null` rather than "created a new database" because `deploy.sh` migrates
 before it starts the app, and migrating creates the file. Note how long it took: the image
@@ -361,7 +508,7 @@ throwaway branch, which you delete afterwards.
 
 **Pass:** the deploy exits non-zero, health reports the previous sha within
 the retry budget, and the match history is unchanged
-(`curl -s http://darts.local:8000/api/export/matches.csv | shasum -a 256`
+(`curl -s --cacert "$DARTS_CA" https://darts.local/api/export/matches.csv | shasum -a 256`
 before and after). Note the time from start to rolled back. The stand-in took
 31 s with no network transfer.
 
@@ -403,9 +550,9 @@ test data from this sitting.
 1. **Digests before.** From the Mac, save them:
 
    ```bash
-   curl -s http://darts.local:8000/api/export/darts.csv | shasum -a 256 > /tmp/before.txt
-   curl -s http://darts.local:8000/api/export/matches.csv | shasum -a 256 >> /tmp/before.txt
-   curl -s http://darts.local:8000/api/export/stats.json | sed 's/"generated_at":"[^"]*",//' | shasum -a 256 >> /tmp/before.txt
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/darts.csv | shasum -a 256 > /tmp/before.txt
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/matches.csv | shasum -a 256 >> /tmp/before.txt
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/stats.json | sed 's/"generated_at":"[^"]*",//' | shasum -a 256 >> /tmp/before.txt
    cat /tmp/before.txt
    ```
 
@@ -415,7 +562,7 @@ test data from this sitting.
    ```bash
    ssh pi@darts.local 'docker compose -f /etc/darts/compose.yaml stop && rm -f /var/lib/darts/darts.db* /var/lib/darts/backups/* /srv/darts-share/darts-latest.db /srv/darts-share/snapshot.json'
    ssh pi@darts.local 'docker compose -f /etc/darts/compose.yaml start'
-   curl -s http://darts.local:8000/api/healthz
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/healthz
    ```
 
    **Expect** `healthy` with `"detail":"created a new database"`: the trap
@@ -435,7 +582,7 @@ verified time, and any step of dr.md that did not work as written.
 #### B11. Health after the sitting
 
 ```bash
-curl -s http://darts.local:8000/api/healthz
+curl -s --cacert "$DARTS_CA" https://darts.local/api/healthz
 ssh pi@darts.local 'ls -ln /var/lib/darts /var/lib/darts/backups | head; docker ps'
 ```
 

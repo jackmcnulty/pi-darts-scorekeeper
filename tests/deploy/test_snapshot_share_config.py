@@ -145,7 +145,8 @@ def test_the_unit_posts_to_the_route_the_app_serves() -> None:
         if "POST" in getattr(route, "methods", set())
     }
     assert path in posts, f"{path} is not a POST route in darts.api.admin: {sorted(posts)}"
-    assert f'- "{port}:8000"' in _compose_lines()
+    # Loopback since #71: the unit is on the host, and so is the only port.
+    assert f'- "127.0.0.1:{port}:8000"' in _compose_lines()
 
 
 def test_the_unit_never_touches_the_database_itself() -> None:
@@ -180,3 +181,46 @@ def test_avahi_advertises_smb_on_the_port_samba_listens_on(
     found = re.search(r"<type>_smb\._tcp</type>\s*<port>(\d+)</port>", text)
     assert found
     assert found.group(1) == smb["global"]["smb ports"]
+
+
+# --- deploy/Caddyfile (#71) ---------------------------------------------------
+
+
+def _caddy_directives() -> list[str]:
+    """The Caddyfile's lines, comments and blanks stripped."""
+    text = (DEPLOY / "Caddyfile").read_text(encoding="utf-8")
+    lines = (line.split("#", 1)[0].strip() for line in text.splitlines())
+    return [line for line in lines if line]
+
+
+def test_the_app_is_published_on_loopback_only() -> None:
+    """The phone's only way in is HTTPS through Caddy, never plain HTTP on the LAN.
+
+    Published on every interface, 8000 would be a second, insecure origin for the
+    same app -- one where Safari withholds the wake lock and the service worker,
+    which is the failure #71 exists to fix.
+    """
+    ports = [line for line in _compose_lines() if re.fullmatch(r'- "[^"]*:8000"', line)]
+    assert ports == ['- "127.0.0.1:8000:8000"']
+
+
+def test_caddy_proxies_to_the_port_compose_publishes() -> None:
+    [proxy] = [line for line in _caddy_directives() if line.startswith("reverse_proxy")]
+    match = re.fullmatch(r"reverse_proxy 127\.0\.0\.1:(\d+)", proxy)
+    assert match, proxy
+    assert f'- "127.0.0.1:{match.group(1)}:8000"' in _compose_lines()
+
+
+def test_caddy_serves_darts_local_with_our_certificate_and_never_fetches_one() -> None:
+    """Nothing public can vouch for a .local name, and a usually-off Pi must not try."""
+    directives = _caddy_directives()
+    assert "darts.local {" in directives
+    assert "auto_https disable_certs" in directives
+    assert any(line.startswith("tls /etc/darts/tls/") for line in directives)
+
+
+def test_caddy_sends_no_hsts() -> None:
+    """A rollback to HTTP must never lock the phone out of a LAN box (#71, by decision)."""
+    text = (DEPLOY / "Caddyfile").read_text(encoding="utf-8")
+    assert "strict-transport-security" not in " ".join(_caddy_directives()).lower()
+    assert "No HSTS" in text, "the decision is written down where it is made"

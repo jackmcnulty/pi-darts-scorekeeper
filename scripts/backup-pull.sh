@@ -59,7 +59,16 @@ repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 # The URL is overridable so the tests can hand the script a deliberately
 # corrupted file through file://, which curl reads exactly as it reads HTTP, and
 # so a rehearsal can point it at a stand-in.
-URL="${BACKUP_PULL_URL:-http://darts.local:8000/api/export/db}"
+URL="${BACKUP_PULL_URL:-https://darts.local/api/export/db}"
+# The Pi serves HTTPS with a certificate from our own root (#71,
+# scripts/make-cert.sh), which nothing on this Mac trusts by default. Handed to
+# curl explicitly rather than added to the login keychain: /usr/bin/curl would
+# read the keychain, but trusting a root there is a security setting for the
+# whole Mac, and this script needs it for one URL. The default is where
+# make-cert.sh keeps it, so on the Mac that made the certificate there is
+# nothing to set. Used only for an https:// URL, and only if the file exists,
+# so the tests' file:// URLs and a keychain-trusting setup both still work.
+CACERT="${BACKUP_PULL_CACERT:-${HOME}/Library/Application Support/darts-tls/darts-root.crt}"
 # Application Support rather than ~/Documents, ~/Desktop or ~/Downloads, which
 # macOS's privacy controls (TCC) fence off from anything you have not granted
 # access to -- and not anywhere iCloud syncs, because an off-site copy is out of
@@ -82,6 +91,7 @@ Pull a verified copy of the scorekeeper database from the Pi onto this Mac.
 
 Settings (environment):
   BACKUP_PULL_URL          where to pull from     [${URL}]
+  BACKUP_PULL_CACERT       root to trust for it   [${CACERT}]
   BACKUP_PULL_DIR          where copies are kept  [${DEST}]
   BACKUP_PULL_KEEP         copies to keep         [${KEEP}]
   BACKUP_PULL_STALE_HOURS  warn past this age     [${STALE_HOURS}]
@@ -149,10 +159,17 @@ trap cleanup EXIT
 # "database". The write-out is the connect time, which is what tells a Pi that
 # is off from an app that accepted the request and hung -- see
 # classify_curl_failure.
+#
+# The positional parameters carry the optional --cacert, because they are the
+# one list bash 3.2 expands safely when empty under `set -u`.
+set --
+case "$URL" in
+  https://*) [ ! -f "$CACERT" ] || set -- --cacert "$CACERT" ;;
+esac
 started="$(date -u +%s)"
 curl_err="$(mktemp "${DEST}/.pull-err.XXXXXX")"
 set +e
-connect="$(curl --silent --show-error --fail \
+connect="$(curl --silent --show-error --fail "$@" \
   --connect-timeout "$CONNECT_TIMEOUT" --max-time "$MAX_TIME" \
   --output "$tmp" --write-out '%{time_connect}' \
   "$URL" 2>"$curl_err")"
@@ -170,6 +187,12 @@ if [ "$code" -ne 0 ]; then
     exit 0
   fi
   warn "the pull from ${URL} failed (${reason})"
+  # 60 is curl's "certificate not trusted". Said plainly, because the likely
+  # cause is a Mac that has never run make-cert.sh, or a renewed root.
+  if [ "$code" -eq 60 ]; then
+    warn "the Pi's certificate is not trusted: is ${CACERT} the root from scripts/make-cert.sh?" \
+      "(BACKUP_PULL_CACERT points elsewhere)"
+  fi
   warn_if_stale
   exit 1
 fi

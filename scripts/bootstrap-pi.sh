@@ -11,6 +11,11 @@
 # snapshot every five minutes. Samba runs on the host, not in a container,
 # because it needs the host's network and files and gains nothing from Docker.
 #
+# And it puts HTTPS in front of the app (#71): Caddy from Debian's archive,
+# terminating TLS on 443 with a certificate made on the Mac by
+# scripts/make-cert.sh and handed over with --tls-from, and redirecting :80.
+# The phone needs HTTPS for a secure context; see deploy/Caddyfile.
+#
 # Everything that lives on the host is owned by this script, so that a deploy is
 # only ever about images and the container. That division is why scripts/deploy.sh
 # needs no source checkout on the Pi and no root at any point.
@@ -25,7 +30,8 @@
 # same end state -- and re-applying it repairs ownership drift, which is the
 # failure this script is most likely to be re-run to fix.
 #
-#   sudo scripts/bootstrap-pi.sh
+#   sudo scripts/bootstrap-pi.sh --tls-from ~/darts-tls   # first run, or a renewal
+#   sudo scripts/bootstrap-pi.sh                          # any later run
 #   scripts/bootstrap-pi.sh --dry-run    # print the plan, change nothing
 #
 # --dry-run needs no privileges and touches nothing: every mutation goes
@@ -51,6 +57,12 @@ ETC_DIR="${BOOTSTRAP_ETC_DIR:-/etc/darts}"
 SAMBA_DIR="${BOOTSTRAP_SAMBA_DIR:-/etc/samba}"
 AVAHI_SERVICES_DIR="${BOOTSTRAP_AVAHI_SERVICES_DIR:-/etc/avahi/services}"
 SYSTEMD_DIR="${BOOTSTRAP_SYSTEMD_DIR:-/etc/systemd/system}"
+CADDY_DIR="${BOOTSTRAP_CADDY_DIR:-/etc/caddy}"
+
+# Where the certificate and its key live on the host. Under /etc/darts with the
+# env file, because like the env file they are the operator's, not the
+# repository's: never committed, and never replaced unless --tls-from says so.
+TLS_DIR="${ETC_DIR}/tls"
 
 # The name the share is reached by: smb://darts.local/darts. Avahi publishes the
 # host's own name, so this is a hostname check, not an Avahi setting.
@@ -67,15 +79,24 @@ CONTAINER_GID=1000
 
 DRY_RUN=0
 
+# A directory holding darts-leaf.crt and darts-leaf.key, as scripts/make-cert.sh
+# writes them on the Mac. Given on the first run and on a renewal; not needed
+# otherwise, because the installed copy is kept.
+TLS_FROM=""
+
 usage() {
   cat <<'EOF'
-Usage: bootstrap-pi.sh [--dry-run]
+Usage: bootstrap-pi.sh [--dry-run] [--tls-from <dir>]
 
 Prepare a fresh Raspberry Pi OS host to run the darts scorekeeper.
 
-  --dry-run   Print the planned actions to stdout and exit without
-              changing anything. Requires no privileges.
-  -h, --help  Show this message.
+  --tls-from <dir>  Install the HTTPS certificate from <dir>, which holds
+                    darts-leaf.crt and darts-leaf.key from
+                    scripts/make-cert.sh. Required on the first run;
+                    replaces the installed certificate on a renewal.
+  --dry-run         Print the planned actions to stdout and exit without
+                    changing anything. Requires no privileges.
+  -h, --help        Show this message.
 EOF
 }
 
@@ -83,6 +104,11 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run)
       DRY_RUN=1
+      ;;
+    --tls-from)
+      [ $# -ge 2 ] || die "--tls-from needs a directory"
+      TLS_FROM="$2"
+      shift
       ;;
     -h | --help)
       usage
@@ -105,6 +131,30 @@ require_root() {
   fi
   [ "$(id -u)" -eq 0 ] ||
     die "must run as root (try: sudo $0)"
+}
+
+# Before anything changes, for the same reason as require_root: a first run
+# with no certificate would otherwise install everything and then leave Caddy
+# with nothing to serve. Checked as files, not parsed -- `caddy validate` reads
+# them properly once they are installed.
+check_tls_source() {
+  local file
+  if [ -n "$TLS_FROM" ]; then
+    for file in darts-leaf.crt darts-leaf.key; do
+      [ -f "${TLS_FROM}/${file}" ] ||
+        die "--tls-from ${TLS_FROM}: no ${file} there; scripts/make-cert.sh on the Mac makes it"
+    done
+    return 0
+  fi
+  if [ -f "${TLS_DIR}/cert.pem" ] && [ -f "${TLS_DIR}/key.pem" ]; then
+    return 0
+  fi
+  local message="no HTTPS certificate in ${TLS_DIR}: run scripts/make-cert.sh on the Mac, copy the leaf here, and re-run with --tls-from <dir> (docs/deploy.md -> HTTPS)"
+  if [ "$DRY_RUN" = "1" ]; then
+    warn "$message"
+  else
+    die "$message"
+  fi
 }
 
 # --- Docker ----------------------------------------------------------------
@@ -358,7 +408,10 @@ install_avahi_service() {
   enable_service avahi-daemon
 }
 
-# Warned, not fixed. Renaming a live box also means rewriting /etc/hosts, and
+# Warned, not fixed. Since #71 this matters to the app as well as the share:
+# deploy/Caddyfile and the certificate are for darts.local only.
+#
+# Renaming a live box also means rewriting /etc/hosts, and
 # the right time to choose the name is when the SD card is flashed -- Raspberry
 # Pi Imager asks for it. Everything else in #30 works under any name; only the
 # address changes.
@@ -370,7 +423,8 @@ check_hostname() {
     skip "hostname is ${SHARE_HOSTNAME}, so ${SHARE_HOSTNAME}.local resolves"
   else
     warn "hostname is '${current:-unknown}', not '${SHARE_HOSTNAME}': the share will be at" \
-      "smb://${current:-<this-pi>}.local/darts, not smb://${SHARE_HOSTNAME}.local/darts." \
+      "smb://${current:-<this-pi>}.local/darts, not smb://${SHARE_HOSTNAME}.local/darts," \
+      "and https://${SHARE_HOSTNAME}.local/ will not resolve -- the certificate covers no other name." \
       "Set the name in Raspberry Pi Imager, or: sudo raspi-config nonint do_hostname ${SHARE_HOSTNAME}"
   fi
 }
@@ -389,34 +443,100 @@ install_snapshot_timer() {
   run systemctl restart darts-snapshot.timer
 }
 
+# --- HTTPS (#71) -----------------------------------------------------------
+#
+# Caddy terminates TLS on 443 and proxies to the app on 127.0.0.1:8000. Why
+# Caddy, why on the host, and why no HSTS: deploy/Caddyfile. Why the
+# certificate is made on the Mac and the Pi's clock does not matter:
+# scripts/make-cert.sh.
+
+install_caddy_package() {
+  if package_installed caddy; then
+    skip "caddy is installed"
+  else
+    run apt-get update
+    run apt-get install -y caddy
+  fi
+}
+
+# Only with --tls-from: an installed certificate is the operator's, like
+# darts.env, and a re-run without one keeps it. With --tls-from it is replaced,
+# because that is what a renewal is.
+#
+# The key is readable by Caddy's group and nobody else; Debian's package runs
+# Caddy as the `caddy` user, which the package install above creates.
+install_tls_files() {
+  if [ -z "$TLS_FROM" ]; then
+    skip "certificate in ${TLS_DIR} (left untouched; --tls-from replaces it)"
+    return 0
+  fi
+  run install -d -m 0750 -o root -g caddy "$TLS_DIR"
+  run install -m 0644 -o root -g root "${TLS_FROM}/darts-leaf.crt" "${TLS_DIR}/cert.pem"
+  run install -m 0640 -o root -g caddy "${TLS_FROM}/darts-leaf.key" "${TLS_DIR}/key.pem"
+}
+
+check_caddy_config() {
+  caddy validate --adapter caddyfile --config "$1" >/dev/null
+}
+
+install_caddyfile() {
+  local source="${repo_root}/deploy/Caddyfile"
+  local target="${CADDY_DIR}/Caddyfile"
+  [ -f "$source" ] || die "missing: ${source}"
+
+  # Replaced whole on every run, like smb.conf -- Debian's stock Caddyfile
+  # serves a placeholder page on :80 and nothing worth keeping.
+  run install -m 0644 "$source" "$target"
+  # Validates the certificate too: Caddy loads it to check it.
+  run check_caddy_config "$target"
+}
+
+start_caddy() {
+  enable_service caddy
+  # Restart, not reload: a reload goes through Caddy's admin API, and a restart
+  # is the same on every run whether or not Caddy was running. It drops open
+  # connections for a moment; the phone's next request reconnects.
+  run systemctl restart caddy
+}
+
+# Warned, not fixed: renewing is a step on the Mac (scripts/make-cert.sh), and
+# the phone is what would show the warning. Thirty days is notice enough for a
+# board used weekly. Skipped where there is no openssl to ask.
+warn_if_certificate_expiring() {
+  local cert="${TLS_DIR}/cert.pem"
+  [ -z "$TLS_FROM" ] || cert="${TLS_FROM}/darts-leaf.crt"
+  [ -f "$cert" ] || return 0
+  command -v openssl >/dev/null 2>&1 || return 0
+  local expires=""
+  expires="$(openssl x509 -noout -enddate -in "$cert" 2>/dev/null)" || expires=""
+  if openssl x509 -noout -checkend $((30 * 86400)) -in "$cert" >/dev/null 2>&1; then
+    skip "certificate valid until ${expires#notAfter=}"
+  else
+    warn "the HTTPS certificate expires ${expires#notAfter=}: run scripts/make-cert.sh on the Mac" \
+      "and re-run this with --tls-from, or the phone will show a certificate warning"
+  fi
+}
+
 # --- Result ----------------------------------------------------------------
 
 # The point of the whole exercise: the URL to type into the phone.
+#
+# A name, never an address: the certificate is for darts.local and nothing
+# else (#71), so https://<ip>/ fails the handshake. That is also why
+# check_hostname matters more than it did -- under any other hostname the
+# phone would be at a name the certificate does not cover.
 print_lan_url() {
-  local port="${DARTS_PORT:-8000}"
-  local address=""
-
-  # hostname -I lists every address; the first is the LAN one on a Pi with a
-  # single active interface. The `|| address=""` is load-bearing: -I is a
-  # Linux-only flag, and under `set -o pipefail` a failing `hostname` would
-  # otherwise make this assignment non-zero and `set -e` would abort the
-  # script here -- after all the real work, at the one step that exists to
-  # tell the operator where the app is.
-  if command -v hostname >/dev/null 2>&1; then
-    address="$(hostname -I 2>/dev/null | awk '{print $1}')" || address=""
-  fi
-  [ -n "$address" ] || address="<this-pi>"
-
-  log ""
-  log "Bootstrap complete. Once #29 has deployed an image, the app is at:"
-  log ""
-  log "    http://${address}:${port}/"
-  log ""
   # The name Avahi is actually publishing, which check_hostname has already
   # warned about if it is not the one the docs assume.
   local name=""
   name="$(hostname 2>/dev/null)" || name=""
   name="${name%%.*}"
+
+  log ""
+  log "Bootstrap complete. Once #29 has deployed an image, the app is at:"
+  log ""
+  log "    https://${SHARE_HOSTNAME}.local/"
+  log ""
   log "and its snapshots, read-only, from Finder (Go > Connect to Server):"
   log ""
   log "    smb://${name:-${SHARE_HOSTNAME}}.local/darts"
@@ -425,6 +545,7 @@ print_lan_url() {
 
 main() {
   require_root
+  check_tls_source
 
   install_docker
   enable_docker_at_boot
@@ -444,6 +565,12 @@ main() {
   install_avahi_service
   check_hostname
   install_snapshot_timer
+
+  install_caddy_package
+  install_tls_files
+  install_caddyfile
+  start_caddy
+  warn_if_certificate_expiring
 
   print_lan_url
 }

@@ -14,6 +14,13 @@ this is the runbook that uses them.
 | The share snapshot | `/srv/darts-share/darts-latest.db` | Every 5 minutes, and when a match ends | No |
 | Mac copies | `~/Library/Application Support/darts-backups/darts-<ts>.db` | **When you run `scripts/backup-pull.sh`** | Yes |
 
+Not data, but worth knowing in the same breath: the HTTPS root and certificate
+(#71) live only on the Mac, in `~/Library/Application Support/darts-tls/`, plus
+a copy of the leaf in `/etc/darts/tls/` on the Pi. A lost card loses only the
+Pi's copy, which step 2 below puts back. A lost Mac means a new root, which the
+phone has to be told to trust again. That is inconvenient, and no matches are
+lost.
+
 Only the last row is off the card. Nothing pulls on a schedule, by decision, so
 **the recovery point after losing the card is your last pull**: every dart thrown
 since then is gone. Pull after a session you would mind losing.
@@ -52,13 +59,17 @@ what ships with macOS: `/usr/bin/curl`, `/usr/bin/sqlite3`, `/bin/bash`.
 | --- | --- | --- |
 | `==> pulled darts-….db (… bytes, schema version 3, integrity ok) in 0s` | A new copy. | 0 |
 | `info: the Pi is not reachable at … (curl exit 28: Could not resolve host: darts.local); probably switched off -- nothing pulled` | The Pi is off. Normal. Takes about 5 s, the mDNS timeout. | 0 |
-| `info: … (curl exit 7: … Couldn't connect to server) …` | Nothing on port 8000: the Pi is off with its address still cached, **or it is up and the app is down**. | 0 |
+| `info: … (curl exit 7: … Couldn't connect to server) …` | Nothing on port 443: the Pi is off with its address still cached, **or it is up and Caddy is down**. A Pi that is up with the *app* down is a 502 from Caddy instead: the next row. | 0 |
 | `warning: rejected the download (… bytes): integrity_check said: …` | A damaged copy. The copies already on the Mac are untouched. | 1 |
-| `warning: the pull from … failed (curl exit 22: …)` | The app answered with an error. | 1 |
+| `warning: the pull from … failed (curl exit 22: …)` | The app answered with an error, or Caddy did because the app is down (502). | 1 |
+| `warning: the pull from … failed (curl exit 60: …)` and `the Pi's certificate is not trusted` | The Mac has no root to check the Pi's certificate with, the wrong one, or the certificate has expired ([deploy.md → HTTPS](deploy.md#https-71)). | 1 |
 | `warning: the newest local copy is 3d 4h old (…), past the 24h threshold` | Added to any run that did not get a new copy, when your newest is old. | — |
 
+It pulls over HTTPS from `https://darts.local/` (#71), trusting the root that
+`scripts/make-cert.sh` keeps in `~/Library/Application Support/darts-tls/`.
+
 Settings, all optional, from the environment: `BACKUP_PULL_URL`,
-`BACKUP_PULL_DIR`, `BACKUP_PULL_KEEP` (30), `BACKUP_PULL_STALE_HOURS` (24).
+`BACKUP_PULL_CACERT`, `BACKUP_PULL_DIR`, `BACKUP_PULL_KEEP` (30), `BACKUP_PULL_STALE_HOURS` (24).
 `scripts/backup-pull.sh --help` lists them.
 
 The copies are plain SQLite files. To look inside one on the Mac:
@@ -95,22 +106,25 @@ any other database is.
 
 ### What a pass looks like
 
-1. `curl -s http://darts.local:8000/api/healthz` says `healthy` with
+`$DARTS_CA` is the root from `scripts/make-cert.sh`
+([ops.md](ops.md#operating-the-scorekeeper) says how to set it).
+
+1. `curl -s --cacert "$DARTS_CA" https://darts.local/api/healthz` says `healthy` with
    `"detail":null`. **Not `created a new database`.**
 2. The history matches the copy. The row counts from the copy on the Mac (the
    `sqlite3` command above) equal the rows the Pi now serves:
 
    ```bash
-   curl -s http://darts.local:8000/api/export/darts.csv | tail -n +2 | wc -l
-   curl -s http://darts.local:8000/api/export/matches.csv | tail -n +2 | wc -l
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/darts.csv | tail -n +2 | wc -l
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/matches.csv | tail -n +2 | wc -l
    ```
 
 3. If you took digests beforehand (you will have, in a drill), they match:
 
    ```bash
-   curl -s http://darts.local:8000/api/export/darts.csv | shasum -a 256
-   curl -s http://darts.local:8000/api/export/matches.csv | shasum -a 256
-   curl -s http://darts.local:8000/api/export/stats.json | sed 's/"generated_at":"[^"]*",//' | shasum -a 256
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/darts.csv | shasum -a 256
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/matches.csv | shasum -a 256
+   curl -s --cacert "$DARTS_CA" https://darts.local/api/export/stats.json | sed 's/"generated_at":"[^"]*",//' | shasum -a 256
    ```
 
    `stats.json` is digested without `generated_at`, which is the time of the
@@ -125,8 +139,12 @@ is all there is.
 
 1. Flash a new card with Raspberry Pi OS Bookworm, hostname `darts`, user `pi`
    ([deploy.md → Bootstrapping a fresh Pi](deploy.md#bootstrapping-a-fresh-pi)).
-2. `sudo scripts/bootstrap-pi.sh` on the Pi. It recreates `/var/lib/darts`,
-   `/var/lib/darts/backups` and `/srv/darts-share`, owned by 1000.
+2. `sudo scripts/bootstrap-pi.sh --tls-from ~/darts-tls` on the Pi, with the
+   leaf copied from the Mac first
+   ([ops.md → Trusting the Pi's certificate](ops.md#setting-it-up-once-and-renewing-every-2-years),
+   step 2). The phone's trusted root is unchanged, so the phone needs nothing.
+   It recreates `/var/lib/darts`, `/var/lib/darts/backups` and
+   `/srv/darts-share`, owned by 1000.
 3. `scripts/deploy.sh --host pi@darts.local` from the Mac. **The app comes up
    healthy and empty. That is expected here and is not the pass.**
 4. [Restore the Mac's newest copy](#restoring-a-mac-copy-onto-the-pi).
