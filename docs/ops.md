@@ -3,6 +3,10 @@
 How to look after the Pi day to day: logs, restart, deploy, roll back, back up,
 restore. Then the device checklist that signs v1 off. Ticket #32.
 
+[runbook.md](runbook.md) has the same tasks, plus first-time setup, cutting a
+release and wiping to a fresh start, in one self-contained page in the order
+you do them.
+
 Each task gives the command and what a pass looks like. How the machinery
 works is in [deploy.md](deploy.md), [durability.md](durability.md) and
 [dr.md](dr.md); this page links there rather than repeating it. Commands
