@@ -1,7 +1,7 @@
 # Deploying to the Pi
 
 How the scorekeeper is packaged and deployed, and what has to be checked on real
-hardware. Tickets #28, #29 and #30.
+hardware. Tickets #28, #29 and #30, and #71's HTTPS.
 
 There is no systemd unit for the app and there should not be one.
 `restart: unless-stopped` in `deploy/compose.yaml` provides both halves of what a
@@ -16,7 +16,9 @@ asks the container over HTTP to publish a snapshot.
 | `deploy/compose.yaml` | Restart policy, bind mounts, published port, shutdown grace. |
 | `deploy/docker-entrypoint.sh` | `exec`s uvicorn so it is PID 1 and SIGTERM reaches it. |
 | `deploy/darts.env.example` | Template for `/etc/darts/darts.env`. |
-| `scripts/bootstrap-pi.sh` | Idempotent host setup: directories, `darts.env`, `compose.yaml`. |
+| `scripts/bootstrap-pi.sh` | Idempotent host setup: directories, `darts.env`, `compose.yaml`, Caddy and its certificate. |
+| `deploy/Caddyfile` | The whole of `/etc/caddy/Caddyfile`: HTTPS on 443 for `darts.local`, proxied to `127.0.0.1:8000` (#71). |
+| `scripts/make-cert.sh` | Run on the Mac: make the root and the `darts.local` certificate (#71). |
 | `.dockerignore` | Allowlist. Keeps `var/darts.db` out of the image. |
 | `scripts/deploy.sh` | Build, ship, migrate, restart, verify, roll back. |
 | `scripts/rollback.sh` | Manual rollback, after a deploy has already succeeded. |
@@ -38,6 +40,9 @@ asks the container over HTTP to publish a snapshot.
 /srv/darts-share/             snapshots, shared read-only by #30
 /etc/darts/darts.env          configuration, loaded by compose
 /etc/darts/compose.yaml       what deploy.sh drives the container with
+/etc/darts/tls/cert.pem       the darts.local certificate, from scripts/make-cert.sh (#71)
+/etc/darts/tls/key.pem        its key, readable by root and Caddy only
+/etc/caddy/Caddyfile          HTTPS in front of the app, from deploy/Caddyfile (#71)
 /etc/samba/smb.conf           the share, from deploy/smb-darts.conf (#30)
 /etc/samba/smb.conf.debian-orig   the stock file, kept once
 /etc/avahi/services/darts.service     the share's mDNS advertisement
@@ -107,11 +112,17 @@ See the plan first — this needs no privileges and changes nothing:
 scripts/bootstrap-pi.sh --dry-run
 ```
 
-Then, on the Pi:
+Then, on the Pi. The first run needs the HTTPS certificate, made on the Mac by
+`scripts/make-cert.sh` and copied over
+([ops.md → Trusting the Pi's certificate](ops.md#trusting-the-pis-certificate)).
+A later run keeps the installed one:
 
 ```
-sudo scripts/bootstrap-pi.sh
+sudo scripts/bootstrap-pi.sh --tls-from ~/darts-tls    # first run, or a renewal
+sudo scripts/bootstrap-pi.sh                           # any later run
 ```
+
+Without either, a real run refuses before changing anything, and names the fix.
 
 ## Deploying
 
@@ -374,15 +385,78 @@ database, which is a pass for this step but worth reading
 
 ### 9. Reachable from the phone
 
-```
-hostname -I
-```
+Open `https://darts.local/` on the iPhone, on the same LAN, once its root is
+trusted ([ops.md → Trusting the Pi's certificate](ops.md#trusting-the-pis-certificate)).
+Not an IP address: the certificate covers `darts.local` and nothing else (#71).
 
-Open `http://<that-address>:8000/` on the iPhone, on the same LAN.
-
-**Expect:** the app loads and a leg can be scored end to end. This overlaps
+**Expect:** the app loads with no certificate warning, and a leg can be scored
+end to end. This overlaps
 #32's device QA pass and is signed off there
 ([ops.md → Device checklist](ops.md#device-checklist-v1-sign-off), B4).
+
+## HTTPS (#71)
+
+The phone needs a secure context. Safari exposes `navigator.wakeLock` (#24) and
+service workers (#21) only over HTTPS or on `localhost`, and over
+`http://darts.local:8000` both were silently absent. So:
+
+```
+phone ──https://darts.local (443)──▶ Caddy (host) ──http──▶ 127.0.0.1:8000 ▶ container
+         http://darts.local (80) ──▶ redirect to https
+```
+
+- **The app is published on loopback only** (`127.0.0.1:8000:8000` in
+  `compose.yaml`), so the only way in from the LAN is HTTPS. Everything else
+  that talks to it already runs on the Pi and keeps plain HTTP on loopback,
+  unchanged: Caddy, the snapshot timer, `healthcheck.sh` over SSH, and the
+  image's own `HEALTHCHECK`. `deploy.sh` and `rollback.sh` reach the app only
+  through `healthcheck.sh`, so they did not change either.
+- **Caddy runs on the host, from Debian's archive** (`caddy` 2.6.2 in
+  bookworm/main), installed by bootstrap like Samba. It is a single-binary web
+  server whose config for this job is a few lines (`deploy/Caddyfile`), and it
+  redirects port 80 by itself. A container was the alternative. It would be a
+  second image to deliver: `deploy.sh` ships images by `docker save | ssh
+  docker load` and would have to learn a second one, or the Pi would pull from
+  a registry. On the host, a deploy is still only ever about the one image it
+  builds. It costs a few tens of MB of RAM on a 4 GB Pi.
+- **The certificate comes from a root of our own, held on the Mac**
+  (`scripts/make-cert.sh`, whose header has the reasoning). The root may sign
+  only for `darts.local`, and its key never reaches the Pi. The leaf lasts 820
+  days, under iOS's 825-day limit, and nothing on the Pi renews it, which is
+  what makes the Pi's stale-after-a-power-cut clock irrelevant. Measured on the
+  real Pi on 2026-10-10: no RTC battery (`battery_voltage` 0). After a power
+  cut the kernel starts at 1970, `fake-hwclock` restores its last hourly save,
+  and NTP corrected it 42 s after boot. Caddy's built-in CA, with 12-hour
+  certificates renewed against that clock, and a public Let's Encrypt
+  certificate, which needs a real domain, a DNS token on the Pi and a Pi that
+  is on near expiry, were both considered and declined.
+- **No HSTS.** If HTTPS ever has to come off, a phone told "HTTPS only" would be
+  locked out of a LAN box until the header expired.
+- **E2E and dev stay on plain HTTP.** Both run on `localhost`, which browsers
+  already treat as a secure context, so the wake lock and the service worker
+  exist there without a certificate.
+
+### Renewing
+
+`scripts/make-cert.sh` again on the Mac, then step 2 of
+[ops.md → Trusting the Pi's certificate](ops.md#setting-it-up-once-and-renewing-every-2-years).
+The root is reused, so the phone needs nothing. Bootstrap warns from 30 days
+before expiry. After expiry the phone shows a certificate warning, and
+`backup-pull.sh` fails with curl exit 60 and says the certificate is not
+trusted.
+
+### Rolling HTTPS back
+
+If it has to come off, go back to the published port and stop Caddy. Revert
+`compose.yaml`'s port line to `"8000:8000"` and re-run bootstrap (it installs the
+compose file), then on the Pi:
+
+```
+sudo systemctl disable --now caddy
+```
+
+The phone goes back to `http://darts.local:8000/`, with no wake lock and no
+offline shell. With no HSTS, nothing on the phone resists that.
 
 ## The broken-build rollback drill
 

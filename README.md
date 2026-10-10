@@ -13,6 +13,7 @@ retroactively without a migration.
 
 - **Raspberry Pi 5**, aarch64, **Raspberry Pi OS Bookworm (Debian 12)**.
 - Home LAN only, no authentication, single-writer pass-and-play.
+- Reached at `https://darts.local/`, with a certificate from a root of our own that the phone trusts once. HTTPS is what gives Safari the wake lock and the offline shell ([docs/ops.md → Trusting the Pi's certificate](docs/ops.md#trusting-the-pis-certificate)).
 - Powered off and on constantly, so the database is configured for durability over speed.
 
 The frontend targets Safari on an iPhone (402×874 CSS px), dark-first.
@@ -26,6 +27,7 @@ The frontend targets Safari on an iPhone (402×874 CSS px), dark-first.
 | Database | SQLite (WAL), forward-only checksummed `.sql` migrations          |
 | Tests    | pytest + hypothesis, Vitest + RTL + MSW, Playwright/webkit        |
 | Deploy   | Docker image built on macOS arm64, shipped over SSH, Compose on Pi |
+| HTTPS    | Caddy (Debian package) on the Pi, in front of the container     |
 
 ## Dev quickstart
 
@@ -118,7 +120,7 @@ backend/darts/     Python package (engine, database, API)
 frontend/          Vite + React + TypeScript app
 tests/             pytest suite
 scripts/           dev and ops shell scripts
-deploy/            Dockerfile, Compose file, env template
+deploy/            Dockerfile, Compose file, Caddyfile, env template
 docs/              architecture and data-model notes
 ```
 

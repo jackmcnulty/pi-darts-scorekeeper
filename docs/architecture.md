@@ -298,6 +298,17 @@ connection problem, and that distinction is what drives the toast.
 
 This was only half true before #21 — see *One error envelope* above.
 
+#### Both features need a secure context, which the LAN only has since #71
+
+Service workers and `navigator.wakeLock` (#24) exist only in a secure context:
+HTTPS, or `localhost`. Every test and E2E run is on `localhost`, so both were
+always present there. On the phone, over `http://darts.local:8000`, both were
+absent, and the code did what it was written to do in that case, which is
+nothing. #32's device pass found it (A4 failed). #71 fixed it outside the
+frontend by serving the app at `https://darts.local/`. Neither `sw/register.ts`
+nor `play/wakeLock.ts` changed behaviour. Their feature tests are still
+load-bearing for jsdom, and for an untrusted or expired certificate.
+
 #### Reachability is decided by evidence, not by `navigator.onLine`
 
 `api/connection.ts` moves only when a real request really succeeds or really
@@ -682,12 +693,47 @@ Bootstrap installs and enables Avahi, adds an `_smb._tcp` advertisement so the
 Pi appears in Finder's sidebar, and warns if the hostname is wrong. It does not
 rename a live box.
 
+**The snapshot timer kept plain HTTP through #71.** It posts to
+`127.0.0.1:8000` on the host, which is still published there; only the LAN
+lost port 8000. See *HTTPS on the LAN (#71)* below.
+
 **The timer is monotonic.** `OnUnitActiveSec=5min` rather than `OnCalendar`,
 because the Pi has no battery-backed clock and the wall clock can be wrong until
 NTP syncs after a power cut. `AccuracySec=1s`, because systemd's default of one
 minute would let each firing drift. Started long after boot, `OnBootSec` has
 already passed, so the first run is immediate. That was measured on the
 stand-in: it fired one second after `systemctl restart`.
+
+### HTTPS on the LAN (#71)
+
+The phone reaches the app at `https://darts.local/`, because Safari withholds
+the wake lock and the service worker from plain HTTP on the LAN (see *Both
+features need a secure context* above). The full reasoning is in
+[deploy.md → HTTPS](deploy.md#https-71). The decisions were Jack's, from a
+recommended set:
+
+- **Trust comes from a root of our own, made and kept on the Mac**
+  (`scripts/make-cert.sh`). It is name-constrained to `darts.local`, and its key
+  never reaches the Pi. The phone trusts it once, as a profile plus
+  Certificate Trust Settings. Caddy's internal CA was rejected because its
+  12-hour certificates are renewed against the Pi's clock, which is wrong
+  after every power cut. Let's Encrypt was rejected because it needs a domain, a
+  DNS token on the Pi, and a Pi that is on near expiry.
+- **The leaf lasts 820 days.** Apple's 398-day limit binds only roots Apple
+  ships. Its 825-day rule binds every TLS server certificate. Both were
+  measured with `security verify-cert` on macOS 26: 825 days passes, 826 does
+  not.
+- **Caddy, from Debian's archive, on the host.** That keeps the deploy split
+  intact: bootstrap owns the host, and deploy ships one image. 8000 is published
+  on loopback only, so every existing caller (snapshot timer, `healthcheck.sh`,
+  the image's `HEALTHCHECK`) is unchanged, and the LAN's only way in is HTTPS.
+- **No HSTS**, so rolling back to HTTP cannot lock the phone out.
+- **The root reaches the phone by AirDrop**, not from a download route on the
+  Pi, because an unauthenticated download of a trust anchor over HTTP is
+  exactly what anyone on the LAN could tamper with.
+- **`backup-pull.sh` passes `--cacert`** rather than having the root added to
+  the Mac's keychain, which would make the root trusted by the whole Mac to
+  serve one script.
 
 ## Durability and disaster recovery
 
@@ -1603,9 +1649,9 @@ reason — a cricket team has marks where a score would be.
 #### The wake lock is re-acquired, not just requested
 
 `navigator.wakeLock` is typed non-optional in `lib.dom.d.ts` but is absent in
-jsdom, on older iOS, and — the one that matters — outside a secure context,
-which is what the Pi serves on the LAN. The feature test is load-bearing rather
-than defensive.
+jsdom, on older iOS, and outside a secure context. Until #71 that last case was
+the one that mattered, because the Pi served plain HTTP on the LAN. The
+feature test is load-bearing rather than defensive.
 
 The browser also releases the lock whenever the page stops being visible and
 never gives it back. Without the `visibilitychange` re-acquire the screen would
@@ -2078,12 +2124,13 @@ players would join the first run's.
 
 Playwright's WebKit is not iOS Safari: `env(safe-area-inset-*)` is 0, there is
 no home-screen install, and the page is served from `localhost`, which **is** a
-secure context. The phone reaches the Pi over plain HTTP, which is not, so
-`navigator.wakeLock` and the service worker are both absent there and present
-here. Measured in WebKit: `isSecureContext` true on `localhost`, false on a LAN
-address, with `wakeLock` and `serviceWorker` missing on the latter. Those are
-the manual checklist in [ops.md](ops.md#device-checklist-v1-sign-off), not this
-run.
+secure context. Before #71 the phone reached the Pi over plain HTTP, which is
+not. Measured in WebKit: `isSecureContext` true on `localhost`, false on a LAN
+address, with `wakeLock` and `serviceWorker` missing on the latter. Since #71
+the phone uses `https://darts.local/`, a secure context like `localhost`, so
+E2E stays on plain HTTP and needs no certificate. Whether the phone really gets
+both features is the manual checklist in
+[ops.md](ops.md#the-71-checklist-on-the-phone), not this run.
 
 #### Decisions
 
